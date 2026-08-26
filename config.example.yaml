@@ -120,3 +120,32 @@ clustering:
 web:
   host: 0.0.0.0
   port: 8080
+
+retention:
+  # Housekeeping. Measured on a year of typical traffic (6k readings/day) the
+  # database reaches ~800 MB, roughly two thirds of which is the raw JSON text
+  # of each reading -- and every one of those lines is also on disk under raw/.
+  # So dropping the old ones costs nothing you cannot get back with
+  # `tpms replay`, and it is the single biggest saving available.
+  raw_days: 7
+
+  # Deleting readings outright is the only setting here that really forgets
+  # something, so it is off by default. Set it (90 is a sensible start) and the
+  # database stops growing without bound. Sightings, sensors, vehicles and the
+  # per-band totals are kept whatever this says: they are the summary of the
+  # readings at a fraction of the size, so a database trimmed to a fortnight
+  # still knows every vehicle it has ever heard.
+  readings_days: null
+
+  # raw/rtl433-YYYY-MM-DD.jsonl compresses about 10:1. Today's file is never
+  # touched. null disables either step.
+  archive_gzip_days: 7
+  archive_delete_days: null
+
+  # Reclaim the freed pages afterwards. SQLite never shrinks the file on its
+  # own, but a VACUUM rewrites it, so it needs room for a second copy.
+  vacuum: true
+
+  # Do all of the above once a day inside the service. With this off, it only
+  # happens when you run `tpms prune`.
+  run_daily: true

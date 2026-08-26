@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import json
 import logging
 import sys
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,7 +19,8 @@ from .cluster import Clusterer
 from .config import load_config
 from .db import Database
 from .ingest import Ingestor
-from .models import band_label, to_iso
+from .models import band_label, now as now_ts, to_iso
+from .retention import human_bytes, run as run_retention
 from .service import Service
 from . import queries as q
 from .synthetic import generate_lines
@@ -77,7 +80,13 @@ def cmd_replay(args: argparse.Namespace) -> int:
         path = Path(args.file)
         if not path.exists():
             raise SystemExit(f"no such file: {path}")
-        lines = path.read_text().splitlines()
+        # Housekeeping compresses archives past a week, and replaying one is
+        # exactly what you do after pruning, so read either form.
+        if path.suffix == ".gz":
+            with gzip.open(path, "rt", errors="replace") as handle:
+                lines = handle.read().splitlines()
+        else:
+            lines = path.read_text().splitlines()
 
     started = time.monotonic()
     count = ingestor.replay(lines)
@@ -410,6 +419,71 @@ def cmd_purge(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_prune(args: argparse.Namespace) -> int:
+    """Apply the retention policy by hand.
+
+    The service does this daily on its own; this is for running it now, or for
+    seeing what it would do with --dry-run before changing the policy.
+    """
+    config = load_config(args.config)
+    retention = replace(
+        config.retention,
+        **{
+            key: value
+            for key, value in (
+                ("raw_days", args.raw_days),
+                ("readings_days", args.readings_days),
+                ("archive_gzip_days", args.archive_gzip_days),
+                ("archive_delete_days", args.archive_delete_days),
+            )
+            if value is not None
+        },
+    )
+    if args.no_vacuum:
+        retention = replace(retention, vacuum=False)
+
+    db = Database(config.database_path)
+    before = db.file_size()
+    print(f"database:  {config.database_path} ({human_bytes(before)})")
+    print(
+        "policy:    "
+        + ", ".join(
+            f"{name} {value if value is not None else 'keep forever'}"
+            for name, value in (
+                ("raw>", retention.raw_days),
+                ("readings>", retention.readings_days),
+                ("gzip>", retention.archive_gzip_days),
+                ("delete>", retention.archive_delete_days),
+            )
+        )
+    )
+
+    if args.dry_run:
+        report = run_retention(
+            db, retention, archive_dir=config.raw_archive_path, dry_run=True
+        )
+        print(report.summary())
+        return 0
+
+    if retention.readings_days is not None and not args.yes:
+        # Dropping raw text is recoverable from raw/; deleting readings is not.
+        cutoff = to_iso(now_ts() - retention.readings_days * 86400)
+        count = db.count_readings_before(now_ts() - retention.readings_days * 86400)
+        answer = input(
+            f"delete {count} reading(s) from before {cutoff}? [y/N] "
+        ).strip().lower()
+        if answer not in ("y", "yes"):
+            print("cancelled")
+            return 1
+
+    report = run_retention(db, retention, archive_dir=config.raw_archive_path)
+    print(report.summary())
+    for note in report.skipped:
+        print(f"skipped: {note}")
+    print(f"on disk:   {human_bytes(report.bytes_after)}")
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     db = Database(config.database_path)
@@ -428,11 +502,15 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"vehicles:  {counts['vehicles']}")
     print(f"sightings: {counts['sightings']}")
     print(f"latest:    {to_iso(counts['latest']) or '-'}")
+    size = db.file_size()
+    lo, hi, rows = db.readings_span()
+    days = ((hi - lo) / 86400.0) if (lo and hi and hi > lo) else 0.0
+    line = f"on disk:   {human_bytes(size)}"
+    if days >= 1:
+        line += f" ({human_bytes(size / days)}/day over {days:.0f} days of capture)"
+    print(line)
     bands: dict[str, int] = {}
-    for row in db.query(
-        "SELECT freq_mhz, COUNT(*) AS n FROM readings "
-        "WHERE freq_mhz IS NOT NULL GROUP BY freq_mhz"
-    ):
+    for row in db.query("SELECT freq_mhz, SUM(n) AS n FROM band_counts GROUP BY freq_mhz"):
         label = band_label(row["freq_mhz"])
         if label:
             bands[label] = bands.get(label, 0) + int(row["n"])
@@ -507,6 +585,26 @@ def build_parser() -> argparse.ArgumentParser:
         "-y", "--yes", action="store_true", help="skip the confirmation prompt"
     )
     purge.set_defaults(func=cmd_purge)
+
+    prune = sub.add_parser(
+        "prune", help="apply the retention policy now (the service does it daily)"
+    )
+    prune.add_argument("--raw-days", type=float, help="drop raw JSON older than this")
+    prune.add_argument(
+        "--readings-days", type=float, help="delete readings older than this"
+    )
+    prune.add_argument("--archive-gzip-days", type=float, help="compress raw/ past this")
+    prune.add_argument(
+        "--archive-delete-days", type=float, help="delete raw/ archives past this"
+    )
+    prune.add_argument(
+        "--dry-run", action="store_true", help="report what would go, change nothing"
+    )
+    prune.add_argument("--no-vacuum", action="store_true", help="skip reclaiming space")
+    prune.add_argument(
+        "-y", "--yes", action="store_true", help="skip the confirmation prompt"
+    )
+    prune.set_defaults(func=cmd_prune)
 
     aliases = sub.add_parser(
         "aliases", help="find one transmitter decoded by several protocols"

@@ -19,6 +19,7 @@ from fastapi.templating import Jinja2Templates
 
 from .. import queries as q
 from ..models import now as now_ts, to_iso
+from ..retention import human_bytes
 from ..service import Service
 
 log = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ def create_app(service: Service) -> FastAPI:
     templates.env.filters["duration"] = _fmt_duration
     templates.env.filters["ago"] = _fmt_ago
     templates.env.filters["iso"] = to_iso
+    templates.env.filters["bytes"] = human_bytes
 
     db = service.db
     gap = service.config.sessions.gap_seconds

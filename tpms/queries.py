@@ -123,15 +123,15 @@ def vehicle_summaries(db: Database, join_gap: float) -> list[dict[str, Any]]:
 
 
 
-def sensor_bands(db: Database, sensor_pk: int) -> list[dict[str, Any]]:
-    """Bands a sensor has been heard on, most recently heard first.
+def _bands_from(rows: list[Any]) -> list[dict[str, Any]]:
+    """Snap measured frequencies onto bands and total them up.
 
     Measured frequencies scatter either side of the tuned band, so they are
     snapped before counting -- otherwise 314.98 and 315.03 would look like two
     different bands.
     """
     totals: dict[float, dict[str, Any]] = {}
-    for row in db.band_counts(sensor_pk, include_aliases=False):
+    for row in rows:
         band = band_of(row["freq_mhz"])
         if band is None:
             continue
@@ -144,6 +144,11 @@ def sensor_bands(db: Database, sensor_pk: int) -> list[dict[str, Any]]:
     for entry in out:
         entry["last_at_iso"] = to_iso(entry["last_at"])
     return out
+
+
+def sensor_bands(db: Database, sensor_pk: int) -> list[dict[str, Any]]:
+    """Bands one sensor has been heard on, most recently heard first."""
+    return _bands_from(db.band_counts(sensor_pk, include_aliases=False))
 
 
 def resident_pks(db: Database, config: Any = None) -> set[int]:
@@ -159,17 +164,33 @@ def resident_pks(db: Database, config: Any = None) -> set[int]:
 
 
 def sensor_row(
-    db: Database, sensor_pk: int, residents: set[int] | None = None
+    db: Database,
+    sensor_pk: int,
+    residents: set[int] | None = None,
+    duty_cycles: dict[int, tuple[float, float]] | None = None,
+    bands_by_sensor: dict[int, list[Any]] | None = None,
 ) -> dict[str, Any]:
+    """One sensor's table row.
+
+    ``duty_cycles`` and ``bands_by_sensor`` are whole-database aggregates. The
+    caller passes them in when building many rows, because computing either
+    one per row is how the Sensors page became the slowest thing in the app.
+    """
     sensor = db.get_sensor(sensor_pk)
     if sensor is None:
         return {}
     resident = sensor_pk in residents if residents is not None else False
-    duty = db.duty_cycles().get(sensor_pk, (0.0, 0.0))[0]
+    if duty_cycles is None:
+        duty_cycles = db.duty_cycles()
+    duty = duty_cycles.get(sensor_pk, (0.0, 0.0))[0]
     latest = db.latest_reading(sensor_pk)
     open_sighting = db.open_sighting_for(sensor_pk)
     pressure = latest["pressure_kpa"] if latest else None
-    bands = sensor_bands(db, sensor_pk)
+    bands = (
+        _bands_from(bands_by_sensor.get(sensor_pk, []))
+        if bands_by_sensor is not None
+        else sensor_bands(db, sensor_pk)
+    )
     return {
         "pk": sensor.pk,
         "model": sensor.model,
@@ -209,6 +230,9 @@ def sensor_rows(db: Database, include_aliases: bool = False) -> list[dict[str, A
     sensors = db.list_sensors()
     displays = {s.pk: s.display for s in sensors}
     residents = resident_pks(db)
+    # Computed once for the page, not once per row.
+    duty_cycles = db.duty_cycles()
+    bands_by_sensor = db.all_band_counts()
 
     aliases: dict[int, list[str]] = {}
     for sensor in sensors:
@@ -219,7 +243,7 @@ def sensor_rows(db: Database, include_aliases: bool = False) -> list[dict[str, A
     for sensor in sensors:
         if sensor.alias_of is not None and not include_aliases:
             continue
-        row = sensor_row(db, sensor.pk, residents)
+        row = sensor_row(db, sensor.pk, residents, duty_cycles, bands_by_sensor)
         row["vehicle_name"] = names.get(sensor.vehicle_id) if sensor.vehicle_id else None
         row["aliases"] = sorted(aliases.get(sensor.pk, []))
         row["alias_of_display"] = displays.get(sensor.alias_of)

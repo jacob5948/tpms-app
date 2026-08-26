@@ -13,7 +13,7 @@ from typing import Any, Iterable, Sequence
 
 from .models import Reading, Sensor, Sighting, Vehicle
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sensors (
@@ -48,6 +48,19 @@ CREATE INDEX IF NOT EXISTS readings_ts ON readings (ts);
 CREATE INDEX IF NOT EXISTS readings_sensor_ts ON readings (sensor_pk, ts);
 -- Alias detection joins readings by signal level within a time window.
 CREATE INDEX IF NOT EXISTS readings_burst ON readings (ts, rssi, snr);
+
+-- Readings per measured frequency, kept as a running total rather than
+-- recomputed. The Sensors page needs this for every sensor at once, and a
+-- GROUP BY over the whole readings table per row was the slowest thing in the
+-- app by an order of magnitude. It also outlives pruning: the band history of
+-- a sensor survives its old readings being deleted.
+CREATE TABLE IF NOT EXISTS band_counts (
+    sensor_pk INTEGER NOT NULL REFERENCES sensors(pk) ON DELETE CASCADE,
+    freq_mhz  REAL    NOT NULL,
+    n         INTEGER NOT NULL DEFAULT 0,
+    last_at   REAL    NOT NULL,
+    PRIMARY KEY (sensor_pk, freq_mhz)
+);
 
 CREATE TABLE IF NOT EXISTS sightings (
     pk              INTEGER PRIMARY KEY,
@@ -162,6 +175,28 @@ class Database:
         sighting_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(sightings)").fetchall()
         }
+        # v5: the band_counts rollup, backfilled in one pass.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS band_counts (
+                sensor_pk INTEGER NOT NULL REFERENCES sensors(pk) ON DELETE CASCADE,
+                freq_mhz  REAL    NOT NULL,
+                n         INTEGER NOT NULL DEFAULT 0,
+                last_at   REAL    NOT NULL,
+                PRIMARY KEY (sensor_pk, freq_mhz)
+            )
+            """
+        )
+        if not conn.execute("SELECT 1 FROM band_counts LIMIT 1").fetchone():
+            conn.execute(
+                """
+                INSERT INTO band_counts (sensor_pk, freq_mhz, n, last_at)
+                SELECT sensor_pk, freq_mhz, COUNT(*), MAX(ts)
+                  FROM readings WHERE freq_mhz IS NOT NULL
+                 GROUP BY sensor_pk, freq_mhz
+                """
+            )
+
         if "freq_mhz" not in sighting_columns:
             conn.execute("ALTER TABLE sightings ADD COLUMN freq_mhz REAL")
             # Backfill from the readings the sighting covers, so history that
@@ -243,25 +278,40 @@ class Database:
     # -- readings --------------------------------------------------------
 
     def insert_reading(self, sensor_pk: int, reading: Reading) -> int:
-        cur = self.execute(
-            """
-            INSERT INTO readings
-                (sensor_pk, ts, pressure_kpa, temperature_c, battery_ok,
-                 freq_mhz, rssi, snr, raw)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                sensor_pk,
-                reading.ts,
-                reading.pressure_kpa,
-                reading.temperature_c,
-                reading.battery_ok,
-                reading.freq_mhz,
-                reading.rssi,
-                reading.snr,
-                reading.raw,
-            ),
-        )
+        conn = self.connect()
+        with self.write_lock, conn:
+            cur = conn.execute(
+                """
+                INSERT INTO readings
+                    (sensor_pk, ts, pressure_kpa, temperature_c, battery_ok,
+                     freq_mhz, rssi, snr, raw)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    sensor_pk,
+                    reading.ts,
+                    reading.pressure_kpa,
+                    reading.temperature_c,
+                    reading.battery_ok,
+                    reading.freq_mhz,
+                    reading.rssi,
+                    reading.snr,
+                    reading.raw,
+                ),
+            )
+            # Same transaction as the reading it counts, so the rollup cannot
+            # drift from the rows it summarises.
+            if reading.freq_mhz is not None:
+                conn.execute(
+                    """
+                    INSERT INTO band_counts (sensor_pk, freq_mhz, n, last_at)
+                    VALUES (?, ?, 1, ?)
+                    ON CONFLICT (sensor_pk, freq_mhz) DO UPDATE SET
+                        n = band_counts.n + 1,
+                        last_at = MAX(band_counts.last_at, excluded.last_at)
+                    """,
+                    (sensor_pk, reading.freq_mhz, reading.ts),
+                )
         return int(cur.lastrowid)
 
     def band_counts(
@@ -275,11 +325,11 @@ class Database:
         the reading count shown beside it.
         """
         sql = """
-            SELECT r.freq_mhz AS freq_mhz, COUNT(*) AS n, MAX(r.ts) AS last_at
-              FROM readings r
-              JOIN sensors s ON s.pk = r.sensor_pk
-             WHERE r.freq_mhz IS NOT NULL AND (s.pk = ?{alias})
-             GROUP BY r.freq_mhz
+            SELECT b.freq_mhz AS freq_mhz, SUM(b.n) AS n, MAX(b.last_at) AS last_at
+              FROM band_counts b
+              JOIN sensors s ON s.pk = b.sensor_pk
+             WHERE s.pk = ?{alias}
+             GROUP BY b.freq_mhz
              ORDER BY last_at DESC
         """
         params: list[Any] = [sensor_pk]
@@ -289,6 +339,16 @@ class Database:
         else:
             sql = sql.format(alias="")
         return self.query(sql, params)
+
+    def all_band_counts(self) -> dict[int, list[sqlite3.Row]]:
+        """Every sensor's bands in one query, for the Sensors table."""
+        out: dict[int, list[sqlite3.Row]] = {}
+        for row in self.query(
+            "SELECT sensor_pk, freq_mhz, n, last_at FROM band_counts "
+            "ORDER BY sensor_pk, last_at DESC"
+        ):
+            out.setdefault(int(row["sensor_pk"]), []).append(row)
+        return out
 
     def latest_reading(self, sensor_pk: int) -> sqlite3.Row | None:
         return self.query_one(
@@ -522,6 +582,76 @@ class Database:
             cur = conn.execute(f"DELETE FROM sensors WHERE pk IN ({marks})", params)
             counts["sensors"] = cur.rowcount
         return counts
+
+    # -- housekeeping ----------------------------------------------------
+
+    def file_size(self) -> int:
+        """Bytes on disk, WAL included -- an uncheckpointed WAL is real space.
+
+        The -shm file is left out: it is a fixed-size shared-memory index that
+        exists only while the database is open, and counting it made a prune
+        look like it had grown the database.
+        """
+        if str(self.path) == ":memory:":
+            return 0
+        total = 0
+        for suffix in ("", "-wal"):
+            candidate = Path(str(self.path) + suffix)
+            if candidate.exists():
+                total += candidate.stat().st_size
+        return total
+
+    def readings_span(self) -> tuple[float | None, float | None, int]:
+        row = self.query_one(
+            "SELECT MIN(ts) AS lo, MAX(ts) AS hi, COUNT(*) AS n FROM readings"
+        )
+        return (row["lo"], row["hi"], int(row["n"]))
+
+    def count_raw_before(self, ts: float) -> int:
+        return int(
+            self.query_one(
+                "SELECT COUNT(*) AS n FROM readings WHERE ts < ? AND raw IS NOT NULL",
+                (ts,),
+            )["n"]
+        )
+
+    def drop_raw_before(self, ts: float) -> int:
+        """Forget the archived JSON text of old readings.
+
+        Every line is also on disk under ``raw/``, so this loses nothing that
+        ``tpms replay`` could not restore -- and it is roughly two thirds of
+        the database by volume.
+        """
+        return int(self.execute(
+            "UPDATE readings SET raw = NULL WHERE ts < ? AND raw IS NOT NULL", (ts,)
+        ).rowcount)
+
+    def count_readings_before(self, ts: float) -> int:
+        return int(
+            self.query_one(
+                "SELECT COUNT(*) AS n FROM readings WHERE ts < ?", (ts,)
+            )["n"]
+        )
+
+    def delete_readings_before(self, ts: float) -> int:
+        """Drop old readings. Sightings, band counts and reading totals stay:
+        they are the summary, and they cost a fraction of what they summarise."""
+        return int(self.execute("DELETE FROM readings WHERE ts < ?", (ts,)).rowcount)
+
+    def vacuum(self) -> None:
+        """Rebuild the file. SQLite never shrinks on DELETE without this."""
+        conn = self.connect()
+        with self.write_lock:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.isolation_level = None      # VACUUM cannot run in a transaction
+            try:
+                conn.execute("VACUUM")
+                # VACUUM writes the rebuilt pages through the WAL; without a
+                # second checkpoint the file on disk is briefly larger than
+                # what it started as, which reads as a failed prune.
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                conn.isolation_level = ""
 
     def duty_cycles(self) -> dict[int, tuple[float, float]]:
         """Per sensor: (share of its observed window it was audible, that window).

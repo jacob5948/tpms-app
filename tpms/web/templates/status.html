@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}Status &middot; TPMS{% endblock %}
 {% block body %}
 <h1>Status</h1>
@@ -66,6 +67,45 @@
     {{ status.ingest.malformed }} unparseable lines.<br>
     {% if status.aliases %}Duplicate decodes: {{ status.aliases }}<br>{% endif %}
     {% if status.clustering %}Last clustering run: {{ status.clustering }}{% endif %}
+  </p>
+</div>
+
+<h2>Storage</h2>
+<p class="sub">
+  What the capture costs on disk, and how fast that is growing. Housekeeping
+  runs daily inside the service; <code>tpms prune --dry-run</code> shows what
+  the next run would do.
+</p>
+<div class="panel">
+  <div class="stats primary">
+    {{ m.stat('Database', status.storage.bytes | bytes,
+              (status.storage.bytes_per_day | bytes ~ ' / day')
+              if status.storage.bytes_per_day else 'not enough capture to rate yet') }}
+    {{ m.stat('Raw archive', status.storage.archive_bytes | bytes,
+              'compressed past ' ~ status.storage.policy.archive_gzip_days ~ ' days'
+              if status.storage.policy.archive_gzip_days else 'kept uncompressed') }}
+    {# Under ten days the figure is worth a decimal: "0.8 days" is honest
+       where "1 days" is both wrong and ungrammatical. #}
+    {{ m.stat('Readings held', status.storage.readings,
+              (('%.1f days of capture' if status.storage.capture_days < 10
+                else '%.0f days of capture') % status.storage.capture_days)
+              if status.storage.capture_days else None) }}
+  </div>
+  <p class="sub" style="margin:12px 0 0">
+    Keeping raw packet text for
+    <strong>{{ status.storage.policy.raw_days if status.storage.policy.raw_days
+               else 'ever' }}{{ ' days' if status.storage.policy.raw_days }}</strong>,
+    readings
+    <strong>{% if status.storage.policy.readings_days %}for
+      {{ status.storage.policy.readings_days }} days{% else %}forever{% endif %}</strong>.
+    Sightings are never pruned &mdash; the appearance log is the history, and it
+    costs a fraction of what it summarises.<br>
+    {% if status.storage.last_housekeeping %}
+      Last run {{ status.storage.last_housekeeping | ago }}:
+      {{ status.storage.last_housekeeping_summary }}
+    {% else %}
+      No housekeeping run yet this session; the first is 5 minutes after start-up.
+    {% endif %}
   </p>
 </div>
 

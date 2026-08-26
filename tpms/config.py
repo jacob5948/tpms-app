@@ -80,6 +80,23 @@ DEFAULTS: dict[str, Any] = {
         "host": "0.0.0.0",
         "port": 8080,
     },
+    "retention": {
+        # Forgetting the raw JSON of old readings costs nothing -- every line
+        # is also on disk under raw/ -- and it is about two thirds of the
+        # database. On by default for that reason.
+        "raw_days": 7,
+        # Deleting readings outright is not, so it is off until you ask. The
+        # sightings they roll up into are kept whatever this says: the
+        # appearance log is the history, and it is a fraction of the size.
+        "readings_days": None,
+        "archive_gzip_days": 7,
+        "archive_delete_days": None,
+        # Reclaim the freed pages afterwards. A VACUUM rewrites the file, so
+        # it needs room for a second copy and a moment of exclusive access.
+        "vacuum": True,
+        # Run the above once a day inside the service.
+        "run_daily": True,
+    },
 }
 
 
@@ -169,6 +186,30 @@ class WebConfig:
 
 
 @dataclass
+class RetentionConfig:
+    """How long each kind of data is kept.
+
+    Sightings and per-sensor totals are never pruned. They are the summary of
+    everything here at a fraction of the size, so a database trimmed to a
+    fortnight of readings still knows every vehicle it has ever heard.
+    """
+
+    #: Drop the archived JSON text of readings older than this. Recoverable
+    #: from raw/ with `tpms replay`, so this is nearly free.
+    raw_days: float | None = 7
+    #: Delete readings older than this outright. None keeps them forever.
+    readings_days: float | None = None
+    #: Compress raw/rtl433-*.jsonl files older than this (~10:1 on JSON).
+    archive_gzip_days: float | None = 7
+    #: Delete those archives entirely past this age.
+    archive_delete_days: float | None = None
+    #: VACUUM after a run that deleted rows. SQLite does not shrink otherwise.
+    vacuum: bool = True
+    #: Have the service do this daily, rather than only on `tpms prune`.
+    run_daily: bool = True
+
+
+@dataclass
 class Config:
     database: str = "tpms.db"
     radio: RadioConfig = field(default_factory=RadioConfig)
@@ -176,6 +217,7 @@ class Config:
     aliases: AliasConfig = field(default_factory=AliasConfig)
     clustering: ClusterConfig = field(default_factory=ClusterConfig)
     web: WebConfig = field(default_factory=WebConfig)
+    retention: RetentionConfig = field(default_factory=RetentionConfig)
     #: Directory the config file was loaded from; relative paths resolve here.
     base_dir: Path = field(default_factory=Path.cwd)
 
@@ -234,5 +276,6 @@ def load_config(path: str | Path | None = None) -> Config:
         aliases=AliasConfig(**data["aliases"]),
         clustering=ClusterConfig(**data["clustering"]),
         web=WebConfig(**data["web"]),
+        retention=RetentionConfig(**data["retention"]),
         base_dir=base_dir,
     )

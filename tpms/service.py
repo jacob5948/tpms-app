@@ -17,6 +17,7 @@ from .db import Database
 from .ingest import Ingestor
 from .models import band_label, now as now_ts
 from .radio import RadioSupervisor
+from .retention import RetentionReport, run as run_retention
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +32,8 @@ class Service:
         self.start_radio = start_radio
         self.last_cluster_report: ClusterReport | None = None
         self.last_alias_report: AliasReport | None = None
+        self.last_retention_report: RetentionReport | None = None
+        self.last_retention_at: float | None = None
         self.started_at = now_ts()
 
         self.radio = RadioSupervisor(
@@ -50,6 +53,8 @@ class Service:
         self._spawn(self._sweep_loop, "sweeper")
         if self.config.clustering.auto_interval_seconds > 0:
             self._spawn(self._cluster_loop, "clusterer")
+        if self.config.retention.run_daily:
+            self._spawn(self._retention_loop, "housekeeper")
 
     def stop(self) -> None:
         self._stop.set()
@@ -80,6 +85,31 @@ class Service:
                 self.recluster()
             except Exception:  # noqa: BLE001
                 log.exception("clustering failed")
+
+    def _retention_loop(self) -> None:
+        # Not at start-up: a service that restarts often would VACUUM every
+        # time. Settle first, then once a day.
+        if self._stop.wait(300):
+            return
+        while True:
+            try:
+                self.housekeep()
+            except Exception:  # noqa: BLE001
+                log.exception("housekeeping failed")
+            if self._stop.wait(86400):
+                return
+
+    def housekeep(self, dry_run: bool = False) -> RetentionReport:
+        report = run_retention(
+            self.db,
+            self.config.retention,
+            archive_dir=self.config.raw_archive_path,
+            dry_run=dry_run,
+        )
+        if not dry_run:
+            self.last_retention_report = report
+            self.last_retention_at = now_ts()
+        return report
 
     def detect_aliases(self, dry_run: bool = False) -> AliasReport:
         report = self.alias_detector.run(dry_run=dry_run)
@@ -147,10 +177,14 @@ class Service:
         )
         # rtl_433 reports RSSI in dB below full scale, so readings crowding
         # zero mean the front end is saturating and the AGC is not coping.
+        # Bounded to the last week of *capture* rather than the whole table:
+        # this used to scan every reading ever taken on each page load, and a
+        # gain problem from last winter is not news anyway.
         levels = self.db.query_one(
             "SELECT COUNT(*) AS n, "
             "SUM(CASE WHEN rssi > -1.0 THEN 1 ELSE 0 END) AS hot "
-            "FROM readings WHERE rssi IS NOT NULL"
+            "FROM readings WHERE rssi IS NOT NULL "
+            "AND ts >= (SELECT MAX(ts) FROM readings) - 604800"
         )
         total = int(levels["n"] or 0) if levels else 0
         hot = int(levels["hot"] or 0) if levels else 0
@@ -158,10 +192,11 @@ class Service:
 
         # Which bands packets are actually arriving on -- the answer that
         # matters when hopping, since a configured band is not a heard one.
+        # From the rollup, not the readings table: same answer, and it does
+        # not get slower as the capture grows.
         bands: dict[str, int] = {}
         for row in self.db.query(
-            "SELECT freq_mhz, COUNT(*) AS n FROM readings "
-            "WHERE freq_mhz IS NOT NULL GROUP BY freq_mhz"
+            "SELECT freq_mhz, SUM(n) AS n FROM band_counts GROUP BY freq_mhz"
         ):
             label = band_label(row["freq_mhz"])
             if label:
@@ -208,4 +243,38 @@ class Service:
             ),
             "started_at": self.started_at,
             "database": str(self.config.database_path),
+            "storage": self._storage(),
+        }
+
+    def _storage(self) -> dict[str, Any]:
+        """Size on disk and how fast it is growing.
+
+        Growth is measured from the capture window rather than assumed: what
+        the database costs per day depends on how busy the road is.
+        """
+        lo, hi, rows = self.db.readings_span()
+        size = self.db.file_size()
+        days = ((hi - lo) / 86400.0) if (lo and hi and hi > lo) else 0.0
+        archive = self.config.raw_archive_path
+        archive_bytes = 0
+        if archive and archive.is_dir():
+            archive_bytes = sum(f.stat().st_size for f in archive.iterdir() if f.is_file())
+        return {
+            "bytes": size,
+            "archive_bytes": archive_bytes,
+            "readings": rows,
+            "oldest_reading": lo,
+            "capture_days": round(days, 2),
+            "bytes_per_day": round(size / days) if days >= 1 else None,
+            "readings_per_day": round(rows / days) if days >= 1 else None,
+            "last_housekeeping": self.last_retention_at,
+            "last_housekeeping_summary": (
+                self.last_retention_report.summary() if self.last_retention_report else None
+            ),
+            "policy": {
+                "raw_days": self.config.retention.raw_days,
+                "readings_days": self.config.retention.readings_days,
+                "archive_gzip_days": self.config.retention.archive_gzip_days,
+                "archive_delete_days": self.config.retention.archive_delete_days,
+            },
         }

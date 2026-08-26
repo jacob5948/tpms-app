@@ -304,7 +304,39 @@ Set `exclude_protocols: []` to decode it again. Sensors already recorded stay
 in the database; excluding the protocol only stops new ones appearing.
 
 Every raw `rtl_433` line is also archived to `raw/rtl433-YYYY-MM-DD.jsonl`, so a
-normalization bug can never lose data — re-import with `tpms replay`.
+normalization bug can never lose data — re-import with `tpms replay` (which
+reads the compressed `.jsonl.gz` form too).
+
+## Housekeeping
+
+Measured on a year of ordinary traffic — 6,000 readings a day, 2.19M rows — the
+database reaches **786 MB**, and about two thirds of that is the raw JSON text
+stored beside each reading. Nothing breaks at that size, but nothing gets
+smaller on its own either, so the service tidies up once a day:
+
+| What | Default | Why |
+|---|---|---|
+| Raw packet text | dropped after **7 days** | every line is also in `raw/`, so `tpms replay` can put it back |
+| Readings | **kept forever** | the only setting here that really forgets something, so you opt in |
+| `raw/` archives | **gzipped after 7 days** | JSON compresses about 10:1; today's file is never touched |
+| `VACUUM` | **on** | SQLite never shrinks the file on delete |
+
+Sightings, sensors, vehicles and the per-band totals are never pruned. They are
+the summary of the readings at a fraction of the size, so a database trimmed to
+a fortnight of packets still knows every vehicle it has ever heard.
+
+On that same year of data: dropping raw text past a week takes 786 MB to
+552 MB, and adding `readings_days: 90` takes it to **154 MB** — with every
+sighting and every band total still there.
+
+```bash
+tpms prune --dry-run                # what the next run would do
+tpms prune --readings-days 90       # trim harder than the config says, once
+```
+
+The Status page shows what the capture costs, what it is costing per day, and
+when housekeeping last ran. Set `retention.run_daily: false` to do it only by
+hand.
 
 ## Deploying to a Pi
 
