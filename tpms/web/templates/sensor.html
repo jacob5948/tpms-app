@@ -49,7 +49,8 @@
       <div class="k">Vehicle</div>
       <div style="font-size:16px;margin-top:2px">{{ m.vehicle_cell(s.vehicle_id, s.vehicle_name) }}</div>
     </div>
-    <form class="inline right" method="post" action="/api/sensors/{{ s.pk }}">
+    <form class="inline right" method="post" data-busy="Applying…"
+          action="/api/sensors/{{ s.pk }}">
       <input type="text" name="wheel_label" value="{{ s.wheel_label or '' }}" placeholder="Wheel, e.g. FL" size="8">
       <select name="vehicle_id">
         <option value="{{ s.vehicle_id or 'none' }}">{{ 'keep vehicle' if s.vehicle_id else 'unassigned' }}</option>

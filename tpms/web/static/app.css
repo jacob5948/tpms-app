@@ -111,6 +111,8 @@ button, .btn {
   background: var(--panel-2); color: var(--ink);
 }
 button:hover, .btn:hover { border-color: var(--accent); text-decoration: none; }
+button[disabled], button.busy { cursor: progress; opacity: 0.65; }
+button.busy { animation: pulse 1.1s ease-in-out infinite; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 input, select, textarea {
   font: inherit; font-size: 13px; padding: 6px 9px; border-radius: 7px;
@@ -230,4 +232,25 @@ th.sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2
 .stat.toggle.active::after {
   content: "filtering"; position: absolute; left: 13px; bottom: 11px;
   font-size: 11.5px; color: var(--accent); font-weight: 600;
+}
+
+/* Outcome of the last mutation. Bottom-right so it never covers a form the
+   user is still working through, and it stacks when several saves land. */
+#toasts {
+  position: fixed; right: 16px; bottom: 16px; z-index: 50;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  pointer-events: none;
+}
+.toast {
+  background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 8px; padding: 10px 14px; font-size: 13.5px; max-width: min(420px, 88vw);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18); animation: toast-in 0.18s ease-out;
+}
+.toast.ok  { border-left-color: var(--live); }
+.toast.err { border-left-color: var(--danger); color: var(--danger); }
+.toast.leaving { opacity: 0; transform: translateY(6px); transition: 0.4s ease-in; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+  button.busy { animation: none; }
 }

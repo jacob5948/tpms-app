@@ -15,7 +15,8 @@
         <span class="dot off"></span>rtl_433 not running
       {% endif %}
     </strong>
-    <form class="inline right" method="post" action="/api/radio/restart">
+    <form class="inline right" method="post" data-busy="Restarting…"
+          action="/api/radio/restart">
       <button type="submit">Restart receiver</button>
     </form>
   </div>

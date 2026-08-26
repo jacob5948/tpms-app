@@ -46,14 +46,16 @@
   single vehicle carries. Two vehicles that always travel together are
   indistinguishable by co-occurrence alone, so this may need splitting.
   {% endif %}
-  <form class="inline" method="post" action="/api/vehicles/{{ vehicle.pk }}/review-cleared">
+  <form class="inline" method="post" data-busy="Clearing…"
+        action="/api/vehicles/{{ vehicle.pk }}/review-cleared">
     <button type="submit">It's correct, clear the flag</button>
   </form>
 </div>
 {% endif %}
 
 <div class="panel">
-  <form class="row" method="post" action="/api/vehicles/{{ vehicle.pk }}">
+  <form class="row" method="post" data-busy="Saving…"
+        action="/api/vehicles/{{ vehicle.pk }}">
     <input type="text" name="name" placeholder="Name this vehicle" value="{{ vehicle.name or '' }}" style="min-width:230px">
     <input type="text" name="notes" placeholder="Notes" value="{{ vehicle.notes or '' }}" style="flex:1;min-width:200px">
     <button class="primary" type="submit">Save</button>
@@ -76,7 +78,8 @@
       <tr>
         <td>{{ m.sensor_cell(s) }}</td>
         <td>
-          <form class="inline" method="post" action="/api/sensors/{{ s.pk }}">
+          <form class="inline" method="post" data-async data-busy="Saving…"
+                action="/api/sensors/{{ s.pk }}">
             <input type="text" name="wheel_label" value="{{ s.wheel_label or '' }}" placeholder="e.g. FL" size="6">
             <button type="submit">Set</button>
           </form>
@@ -86,7 +89,8 @@
         <td class="num">{{ s.reading_count }}</td>
         <td title="{{ s.last_seen_iso }}" data-sort="{{ s.last_seen }}">{{ s.last_seen | ago }}</td>
         <td>
-          <form class="inline" method="post" action="/api/sensors/{{ s.pk }}">
+          <form class="inline" method="post" data-busy="Moving…"
+                action="/api/sensors/{{ s.pk }}">
             <select name="vehicle_id">
               <option value="{{ vehicle.pk }}">stay here</option>
               <option value="new">split to new vehicle</option>
@@ -106,7 +110,8 @@
 
 {% if all_vehicles %}
 <div class="panel">
-  <form class="row" method="post" action="/api/vehicles/{{ vehicle.pk }}/merge">
+  <form class="row" method="post" data-busy="Merging…"
+        action="/api/vehicles/{{ vehicle.pk }}/merge">
     <strong style="font-size:14px">Merge another vehicle into this one</strong>
     <select name="other">
       {% for other in all_vehicles %}<option value="{{ other.pk }}">{{ other.display }}</option>{% endfor %}

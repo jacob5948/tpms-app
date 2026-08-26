@@ -10,6 +10,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -27,6 +28,15 @@ HERE = Path(__file__).parent
 #: Seconds between SSE comment frames, which stop proxies and browsers
 #: from dropping an idle stream. Module-level so tests can shorten it.
 KEEPALIVE_SECONDS = 15.0
+
+#: Carries the result of a mutation across the redirect that follows it, so
+#: the page that lands can say what happened. Deleted as soon as one page has
+#: shown it.
+FLASH_COOKIE = "tpms_flash"
+
+#: Set by static/forms.js on the submissions it handles itself. Those want the
+#: outcome as JSON rather than a whole page they are not going to render.
+ASYNC_HEADER = "x-tpms-async"
 
 
 def _fmt_duration(seconds: float | None) -> str:
@@ -84,7 +94,12 @@ def create_app(service: Service) -> FastAPI:
 
     def page(request: Request, name: str, **context: Any) -> HTMLResponse:
         context.setdefault("nav", name.replace(".html", ""))
-        return templates.TemplateResponse(request, name, context)
+        flash = request.cookies.get(FLASH_COOKIE)
+        context.setdefault("flash", unquote(flash) if flash else None)
+        response = templates.TemplateResponse(request, name, context)
+        if flash:
+            response.delete_cookie(FLASH_COOKIE, path="/")
+        return response
 
     # -- pages ------------------------------------------------------------
 
@@ -253,10 +268,36 @@ def create_app(service: Service) -> FastAPI:
 
     # -- mutations --------------------------------------------------------
 
-    def _back(request: Request, fallback: str = "/vehicles") -> RedirectResponse:
-        return RedirectResponse(
+    def _back(
+        request: Request,
+        fallback: str = "/vehicles",
+        message: str | None = None,
+        **detail: Any,
+    ):
+        """Answer a mutation.
+
+        Every mutation used to end in a bare redirect, which left the user with
+        no way to tell a successful save from a click that never registered.
+        Now it either answers forms.js in JSON, or carries a one-line summary
+        across the redirect for the next page to show.
+        """
+        if request.headers.get(ASYNC_HEADER):
+            return JSONResponse({"ok": True, "message": message or "Saved.", **detail})
+        response = RedirectResponse(
             request.headers.get("referer", fallback), status_code=303
         )
+        if message:
+            # quote(): messages carry vehicle names, and a stray comma or
+            # semicolon would truncate the cookie.
+            response.set_cookie(
+                FLASH_COOKIE, quote(message), path="/", max_age=30, samesite="lax"
+            )
+        return response
+
+    def _vehicle_name(vehicle_id: int) -> str:
+        vehicle = db.get_vehicle(vehicle_id)
+        name = getattr(vehicle, "name", None) if vehicle else None
+        return name or f"Unnamed vehicle #{vehicle_id}"
 
     @app.post("/api/vehicles/{vehicle_id}")
     async def update_vehicle(request: Request, vehicle_id: int):
@@ -271,7 +312,11 @@ def create_app(service: Service) -> FastAPI:
             "UPDATE vehicles SET name = ?, notes = ?, auto_generated = 0 WHERE pk = ?",
             (name, notes, vehicle_id),
         )
-        return _back(request, f"/vehicles/{vehicle_id}")
+        return _back(
+            request,
+            f"/vehicles/{vehicle_id}",
+            f"Saved {name}." if name else "Saved. This vehicle has no name yet.",
+        )
 
     @app.post("/api/vehicles/{vehicle_id}/merge")
     async def merge_vehicle(request: Request, vehicle_id: int):
@@ -279,15 +324,17 @@ def create_app(service: Service) -> FastAPI:
         other = int(form.get("other"))
         if db.get_vehicle(vehicle_id) is None or db.get_vehicle(other) is None:
             raise HTTPException(404, "vehicle not found")
+        moved = _vehicle_name(other)
+        into = _vehicle_name(vehicle_id)
         db.execute("UPDATE sensors SET vehicle_id = ? WHERE vehicle_id = ?", (vehicle_id, other))
         db.execute("UPDATE vehicles SET auto_generated = 0 WHERE pk = ?", (vehicle_id,))
         db.delete_empty_vehicles()
-        return _back(request, f"/vehicles/{vehicle_id}")
+        return _back(request, f"/vehicles/{vehicle_id}", f"Merged {moved} into {into}.")
 
     @app.post("/api/vehicles/{vehicle_id}/review-cleared")
     async def clear_review(request: Request, vehicle_id: int):
         db.execute("UPDATE vehicles SET needs_review = 0 WHERE pk = ?", (vehicle_id,))
-        return _back(request, f"/vehicles/{vehicle_id}")
+        return _back(request, f"/vehicles/{vehicle_id}", "Review flag cleared.")
 
     @app.post("/api/sensors/{sensor_pk}")
     async def update_sensor(request: Request, sensor_pk: int):
@@ -296,13 +343,19 @@ def create_app(service: Service) -> FastAPI:
         if sensor is None:
             raise HTTPException(404, "sensor not found")
 
+        display = f"{sensor.model}/{sensor.sensor_id}"
+        done: list[str] = []
+        label = sensor.wheel_label
+
         if "wheel_label" in form:
             label = (form.get("wheel_label") or "").strip() or None
             db.execute("UPDATE sensors SET wheel_label = ? WHERE pk = ?", (label, sensor_pk))
+            done.append(f"labelled {label}" if label else "wheel label cleared")
 
         if "pinned" in form:
             pinned = 1 if form.get("pinned") in ("1", "true", "on") else 0
             db.execute("UPDATE sensors SET pinned = ? WHERE pk = ?", (pinned, sensor_pk))
+            done.append("pinned" if pinned else "unpinned")
 
         if "vehicle_id" in form:
             raw = (form.get("vehicle_id") or "").strip()
@@ -319,27 +372,31 @@ def create_app(service: Service) -> FastAPI:
             # off, so pin the sensor as part of the same action.
             db.execute("UPDATE sensors SET pinned = 1 WHERE pk = ?", (sensor_pk,))
             db.delete_empty_vehicles()
+            done.append(
+                f"moved to {_vehicle_name(target)}" if target else "unassigned"
+            )
 
-        return _back(request, "/sensors")
+        message = f"{display}: {', '.join(done)}." if done else "Nothing to change."
+        return _back(request, "/sensors", message, wheel_label=label)
 
     @app.post("/api/aliases")
     async def redetect_aliases(request: Request):
         report = service.detect_aliases()
         if request.headers.get("accept", "").startswith("application/json"):
             return JSONResponse({"summary": report.summary()})
-        return _back(request, "/sensors")
+        return _back(request, "/sensors", report.summary())
 
     @app.post("/api/recluster")
     async def recluster(request: Request):
         report = service.recluster()
         if request.headers.get("accept", "").startswith("application/json"):
             return JSONResponse({"summary": report.summary()})
-        return _back(request, "/vehicles")
+        return _back(request, "/vehicles", report.summary())
 
     @app.post("/api/radio/restart")
     async def radio_restart(request: Request):
         service.radio.restart()
-        return _back(request, "/status")
+        return _back(request, "/status", "Receiver restarted.")
 
     @app.get("/api/export.csv")
     def export_csv(
