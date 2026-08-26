@@ -24,6 +24,10 @@ log = logging.getLogger(__name__)
 
 HERE = Path(__file__).parent
 
+#: Seconds between SSE comment frames, which stop proxies and browsers
+#: from dropping an idle stream. Module-level so tests can shorten it.
+KEEPALIVE_SECONDS = 15.0
+
 
 def _fmt_duration(seconds: float | None) -> str:
     if seconds is None:
@@ -181,27 +185,34 @@ def create_app(service: Service) -> FastAPI:
 
         async def generate():
             stopping = asyncio.ensure_future(shutting_down.wait())
+            # One pending getter, carried across keepalives. Cancelling and
+            # recreating it each time would drop any reading that arrived
+            # between the timeout firing and the cancel landing.
+            nxt = asyncio.ensure_future(queue.get())
             try:
                 yield ": connected\n\n"
                 while not shutting_down.is_set():
                     if await request.is_disconnected():
                         break
-                    nxt = asyncio.ensure_future(queue.get())
                     done, _ = await asyncio.wait(
                         {nxt, stopping},
-                        timeout=15,
+                        timeout=KEEPALIVE_SECONDS,
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                     if stopping in done:
-                        nxt.cancel()
                         break
                     if nxt in done:
                         yield f"data: {json.dumps(nxt.result())}\n\n"
+                        nxt = asyncio.ensure_future(queue.get())
                     else:
-                        nxt.cancel()
-                        yield ": keepalive\n\n"  # keeps proxies from timing out
+                        yield ": keepalive\n\n"  # nxt stays pending, unconsumed
             finally:
+                nxt.cancel()
                 stopping.cancel()
+                # Await the cancellations, or asyncio logs "Task was destroyed
+                # but it is pending" for every stream that ever closed.
+                with contextlib.suppress(BaseException):
+                    await asyncio.gather(nxt, stopping, return_exceptions=True)
                 unsubscribe()
 
         return StreamingResponse(
