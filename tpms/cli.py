@@ -98,8 +98,13 @@ def cmd_replay(args: argparse.Namespace) -> int:
 
 def cmd_recluster(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    db = Database(config.database_path)
-    report = Clusterer(db, config.clustering).run(dry_run=args.dry_run)
+    # Through Service, so this does exactly what the web UI's button does --
+    # duplicate detection first, then clustering.
+    service = Service(config, start_radio=False)
+    db = service.db
+    report = service.recluster(dry_run=args.dry_run)
+    if service.last_alias_report is not None:
+        print("duplicates: " + service.last_alias_report.summary())
 
     print(("[dry run] " if args.dry_run else "") + report.summary())
     for members in report.components:

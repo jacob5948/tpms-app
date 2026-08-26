@@ -222,3 +222,59 @@ def test_the_pi_capture(ingestor, db):
     report = AliasDetector(db).run()
     assert len(report.groups) == 5
     assert len(_canonical(db)) == 5, "ten decodes are really five transmitters"
+
+
+# --- the CLI must behave like the web UI ----------------------------------
+
+
+def test_cli_recluster_runs_duplicate_detection_first(tmp_path, monkeypatch):
+    """`tpms recluster` skipped dedup entirely while the web UI ran it.
+
+    Same command name, two behaviours -- so duplicates survived on a Pi where
+    only the CLI was ever used, and clustered into vehicles that did not exist.
+    """
+    from tpms.cli import main
+    from tpms.config import Config
+    from tpms.service import Service
+
+    database = tmp_path / "cli.db"
+    service = Service(Config(database=str(database)), start_radio=False)
+    for index in range(3):
+        _burst(service.ingestor, f"2026-08-26 0{index}:10:00", -8.1, 12.3,
+               [("Ford", "6cd2eb33"), ("Jansite", "6cd2eb3")])
+    service.db.close()
+
+    (tmp_path / "config.yaml").write_text(f"database: {database}\n")
+    assert main(["--config", str(tmp_path / "config.yaml"), "recluster"]) == 0
+
+    from tpms.db import Database
+
+    reopened = Database(database)
+    assert any(s.alias_of is not None for s in reopened.list_sensors()), (
+        "recluster must collapse duplicate decodes, as the web UI does"
+    )
+    assert reopened.list_vehicles() == [], "one transmitter is not a vehicle"
+
+
+def test_measured_thresholds_match_real_duplicates_exactly(ingestor, db):
+    """Genuine duplicates agree exactly; near misses must stay separate.
+
+    Taken from a real capture: all nine true pairs had dt/dRSSI/dSNR of 0.0,
+    while the closest false candidate was 2.0s and 1.1 dB away.
+    """
+    _burst(ingestor, "2026-08-26 02:27:21", -5.8, 13.0,
+           [("Ford", "356ba38f"), ("Jansite", "356ba38")])
+    # PMV-107J: 2s later, 1.1 dB apart -- a different sensor entirely.
+    ingestor.handle_object({"time": "2026-08-26 02:27:19", "model": "PMV-107J",
+                            "type": "TPMS", "id": "0104db9c", "rssi": -4.7, "snr": 14.3})
+    AliasDetector(db).run()
+    canonical = _canonical(db)
+    assert len(canonical) == 2
+    assert any("PMV-107J" in name for name in canonical)
+
+
+def test_three_decoders_of_one_burst_collapse_to_one(ingestor, db):
+    _burst(ingestor, "2026-08-26 02:32:57", -6.8, 11.0,
+           [("Renault", "a1cbaf"), ("Jansite", "3041aaa"), ("Hyundai-VDO", "41aaafcb")])
+    AliasDetector(db).run()
+    assert len(_canonical(db)) == 1

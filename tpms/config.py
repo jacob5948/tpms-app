@@ -43,9 +43,9 @@ DEFAULTS: dict[str, Any] = {
         "sweep_interval_seconds": 15,
     },
     "aliases": {
-        "time_tolerance": 2.0,
-        "rssi_tolerance": 1.5,
-        "snr_tolerance": 3.0,
+        "time_tolerance": 1.0,
+        "rssi_tolerance": 0.5,
+        "snr_tolerance": 1.0,
         "require_different_decoder": True,
         "min_shared_bursts": 1,
         "min_share_ratio": 0.5,
@@ -96,13 +96,14 @@ class AliasConfig:
     #: Readings this far apart can still be the same burst. rtl_433 stamps to
     #: the second unless -M time:usec is in play, so the same burst can land
     #: either side of a second boundary.
-    time_tolerance: float = 2.0
-    #: How far apart, in dB, two decoders may measure the same burst. Not zero:
-    #: decoders trigger on slightly different sample ranges, so one real burst
-    #: is commonly reported as -8.1 by one and -8.4 by another.
-    rssi_tolerance: float = 1.5
+    time_tolerance: float = 1.0
+    #: How far apart, in dB, two decoders may measure the same burst. Measured
+    #: against real capture, genuine duplicates agree *exactly* -- both decoders
+    #: read the one burst -- while the nearest false candidate differed by 1.1.
+    #: The margin here is for safety, not because a spread is expected.
+    rssi_tolerance: float = 0.5
     #: Same, for SNR. Ignored when either reading lacks it.
-    snr_tolerance: float = 3.0
+    snr_tolerance: float = 1.0
     #: Only ever treat *different* decoders as duplicates. Wheels on one car
     #: share an OEM sensor type, so a same-decoder pair is a real pair of
     #: sensors, never one sensor seen twice.

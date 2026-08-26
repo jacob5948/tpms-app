@@ -106,10 +106,15 @@ they co-occur perfectly by construction, cluster into vehicles that do not exist
 Two things identify them. First, only *different* decoders are ever merged:
 wheels on one car share an OEM sensor type, so a same-decoder pair is two real
 sensors, never one seen twice. Second, signal level — rtl_433 reports RSSI and
-SNR per burst, and two decoders parsing the same burst report near-identical
-values at the same instant. Near, not identical: they trigger on slightly
-different sample ranges, so one burst may read -8.1 to one decoder and -8.4 to
-another, and `aliases.rssi_tolerance` allows for that.
+SNR per burst, and two decoders parsing the same burst report *exactly* the
+same values at the same instant. Measured against real capture, every genuine
+duplicate agreed to 0.0 dB on RSSI and SNR, while the nearest false candidate
+was 2 seconds and 1.1 dB away. The tolerances in `config.yaml` are safety
+margin, not expected spread — widening them starts merging real sensors that
+happened to transmit at a similar moment and level.
+
+Run `tpms aliases --explain` to see the actual deltas in your own data and what
+accepted or rejected each pair.
 
 Where rtl_433 supports it, capture also requests microsecond timestamps
 (`-M time:utc:usec`), which pins two decodes of one burst together far more
