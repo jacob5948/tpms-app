@@ -42,11 +42,19 @@ DEFAULTS: dict[str, Any] = {
         "gap_seconds": 120,
         "sweep_interval_seconds": 15,
     },
+    "aliases": {
+        "time_tolerance": 2.0,
+        "min_shared_bursts": 1,
+        "min_share_ratio": 0.5,
+        "auto_interval_seconds": 300,
+    },
     "clustering": {
         "window_seconds": 10,
         "min_cooccurrences": 3,
         "min_support": 0.6,
         "max_cluster_size": 6,
+        "single_pass": True,
+        "single_pass_rssi_spread": 10.0,
         "auto_interval_seconds": 300,
     },
     "web": {
@@ -79,11 +87,35 @@ class SessionConfig:
 
 
 @dataclass
+class AliasConfig:
+    """Detection of one transmitter decoded by several protocols."""
+
+    #: Readings this far apart can still be the same burst.
+    time_tolerance: float = 2.0
+    #: Identical-signal bursts needed before two sensors are called duplicates.
+    #: One is enough: matching RSSI *and* SNR at the same instant is already a
+    #: strong fingerprint, and most vehicles are only ever heard once.
+    min_shared_bursts: int = 1
+    #: Share of the quieter sensor's readings that must be shared bursts.
+    min_share_ratio: float = 0.5
+    #: Re-run automatically this often (seconds). 0 disables.
+    auto_interval_seconds: float = 300
+
+
+@dataclass
 class ClusterConfig:
     window_seconds: float = 10
     min_cooccurrences: int = 3
     min_support: float = 0.6
     max_cluster_size: int = 6
+    #: Group sensors heard together in a *single* pass when they look like one
+    #: vehicle: same decoder, comparable signal level. Most vehicles on a public
+    #: road are only ever heard once, so without this they never group at all.
+    #: The resulting vehicles are marked provisional until a return visit
+    #: corroborates them.
+    single_pass: bool = True
+    #: Widest spread of mean RSSI, in dB, tolerated within one such group.
+    single_pass_rssi_spread: float = 10.0
     auto_interval_seconds: float = 300
 
 
@@ -98,6 +130,7 @@ class Config:
     database: str = "tpms.db"
     radio: RadioConfig = field(default_factory=RadioConfig)
     sessions: SessionConfig = field(default_factory=SessionConfig)
+    aliases: AliasConfig = field(default_factory=AliasConfig)
     clustering: ClusterConfig = field(default_factory=ClusterConfig)
     web: WebConfig = field(default_factory=WebConfig)
     #: Directory the config file was loaded from; relative paths resolve here.
@@ -155,6 +188,7 @@ def load_config(path: str | Path | None = None) -> Config:
         database=data["database"],
         radio=RadioConfig(**data["radio"]),
         sessions=SessionConfig(**data["sessions"]),
+        aliases=AliasConfig(**data["aliases"]),
         clustering=ClusterConfig(**data["clustering"]),
         web=WebConfig(**data["web"]),
         base_dir=base_dir,

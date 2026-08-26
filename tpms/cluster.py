@@ -52,6 +52,9 @@ class Edge:
     b: int
     count: int
     support: float
+    #: False for edges inferred from a single pass, which are plausible but
+    #: uncorroborated. A component containing any of these stays provisional.
+    confirmed: bool = True
 
 
 @dataclass
@@ -64,6 +67,8 @@ class ClusterReport:
     sensors_unassigned: int = 0
     oversized: list[list[int]] = field(default_factory=list)
     skipped_manual: list[int] = field(default_factory=list)
+    skipped_aliases: list[int] = field(default_factory=list)
+    provisional: list[list[int]] = field(default_factory=list)
 
     def summary(self) -> str:
         return (
@@ -71,8 +76,10 @@ class ClusterReport:
             f"+{self.vehicles_created} vehicle(s), -{self.vehicles_removed} empty, "
             f"{self.sensors_assigned} sensor(s) assigned, "
             f"{self.sensors_unassigned} unassigned, "
+            f"{len(self.provisional)} provisional, "
             f"{len(self.oversized)} oversized, "
-            f"{len(self.skipped_manual)} left to manual control"
+            f"{len(self.skipped_manual)} left to manual control, "
+            f"{len(self.skipped_aliases)} duplicate decode(s) ignored"
         )
 
 
@@ -86,21 +93,55 @@ class Clusterer:
     def build_edges(self, eligible: set[int] | None = None) -> list[Edge]:
         """Co-occurrence pairs strong enough to imply a shared vehicle."""
         counts = self.db.sighting_counts()
+        profiles = self._profiles() if self.config.single_pass else {}
         edges: list[Edge] = []
+
         for row in self.db.cooccurrence_rows():
             a, b, count = int(row["a"]), int(row["b"]), int(row["count"])
             if eligible is not None and (a not in eligible or b not in eligible):
                 continue
-            if count < self.config.min_cooccurrences:
-                continue
+
             # Support, not raw count: two cars that commuted together three
             # times still fail this if each has been seen fifty times alone.
             denominator = min(counts.get(a, 0), counts.get(b, 0))
             support = count / denominator if denominator else 0.0
-            if support < self.config.min_support:
-                continue
-            edges.append(Edge(a=a, b=b, count=count, support=support))
+
+            if count >= self.config.min_cooccurrences and support >= self.config.min_support:
+                edges.append(Edge(a=a, b=b, count=count, support=support))
+            elif self.config.single_pass and self._same_vehicle_shape(a, b, profiles):
+                edges.append(
+                    Edge(a=a, b=b, count=count, support=support, confirmed=False)
+                )
         return edges
+
+    def _profiles(self) -> dict[int, tuple[str, float | None]]:
+        """Decoder and median signal level per sensor."""
+        rows = self.db.query(
+            """
+            SELECT s.pk, s.model,
+                   (SELECT AVG(r.rssi) FROM readings r WHERE r.sensor_pk = s.pk) AS rssi
+              FROM sensors s
+            """
+        )
+        return {int(r["pk"]): (r["model"], r["rssi"]) for r in rows}
+
+    def _same_vehicle_shape(
+        self, a: int, b: int, profiles: dict[int, tuple[str, float | None]]
+    ) -> bool:
+        """Could these two be wheels on one vehicle, seen once?
+
+        Wheels on a car share an OEM sensor type and sit roughly the same
+        distance from the receiver. Two unrelated cars passing at the same
+        moment usually differ in at least one of those.
+        """
+        left, right = profiles.get(a), profiles.get(b)
+        if left is None or right is None:
+            return False
+        if left[0] != right[0]:
+            return False
+        if left[1] is None or right[1] is None:
+            return True  # no signal data to judge on; timing alone will do
+        return abs(left[1] - right[1]) <= self.config.single_pass_rssi_spread
 
     def components(self, edges: list[Edge]) -> list[list[int]]:
         uf = UnionFind()
@@ -126,7 +167,11 @@ class Clusterer:
         eligible: set[int] = set()
         report = ClusterReport()
         for pk, sensor in sensors.items():
-            if self._is_manual(sensor, manual_vehicles):
+            if sensor.alias_of is not None:
+                # The same transmitter under another decoder's name. Including
+                # it would invent a vehicle out of one physical sensor.
+                report.skipped_aliases.append(pk)
+            elif self._is_manual(sensor, manual_vehicles):
                 report.skipped_manual.append(pk)
             else:
                 eligible.add(pk)
@@ -140,16 +185,33 @@ class Clusterer:
             ]
             return report
 
+        provisional_nodes = {
+            node
+            for edge in report.edges
+            if not edge.confirmed
+            for node in (edge.a, edge.b)
+        }
+        confirmed_nodes = {
+            node for edge in report.edges if edge.confirmed for node in (edge.a, edge.b)
+        }
+
         clustered: set[int] = set()
         for members in report.components:
             clustered.update(members)
             oversized = len(members) > self.config.max_cluster_size
             if oversized:
                 report.oversized.append(members)
+            # Provisional until every member has been corroborated by a
+            # repeat sighting, not just grouped from one pass.
+            provisional = any(
+                m in provisional_nodes and m not in confirmed_nodes for m in members
+            )
+            if provisional:
+                report.provisional.append(members)
             vehicle_id = self._reconcile(members, sensors, report)
             self.db.execute(
-                "UPDATE vehicles SET needs_review = ? WHERE pk = ?",
-                (int(oversized), vehicle_id),
+                "UPDATE vehicles SET needs_review = ?, provisional = ? WHERE pk = ?",
+                (int(oversized), int(provisional), vehicle_id),
             )
 
         # A sensor that no longer has strong ties loses its auto-assignment.

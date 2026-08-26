@@ -13,7 +13,7 @@ from typing import Any, Iterable, Sequence
 
 from .models import Reading, Sensor, Sighting, Vehicle
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sensors (
@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS sensors (
     vehicle_id    INTEGER REFERENCES vehicles(pk) ON DELETE SET NULL,
     wheel_label   TEXT,
     pinned        INTEGER NOT NULL DEFAULT 0,
+    -- Set when this "sensor" is really the same transmitter as another,
+    -- decoded by a different rtl_433 protocol. See tpms/aliases.py.
+    alias_of      INTEGER REFERENCES sensors(pk) ON DELETE SET NULL,
     UNIQUE (model, sensor_id)
 );
 
@@ -43,6 +46,8 @@ CREATE TABLE IF NOT EXISTS readings (
 );
 CREATE INDEX IF NOT EXISTS readings_ts ON readings (ts);
 CREATE INDEX IF NOT EXISTS readings_sensor_ts ON readings (sensor_pk, ts);
+-- Alias detection joins readings by signal level within a time window.
+CREATE INDEX IF NOT EXISTS readings_burst ON readings (ts, rssi, snr);
 
 CREATE TABLE IF NOT EXISTS sightings (
     pk              INTEGER PRIMARY KEY,
@@ -63,7 +68,10 @@ CREATE TABLE IF NOT EXISTS vehicles (
     notes          TEXT,
     created_at     REAL NOT NULL,
     auto_generated INTEGER NOT NULL DEFAULT 1,
-    needs_review   INTEGER NOT NULL DEFAULT 0
+    needs_review   INTEGER NOT NULL DEFAULT 0,
+    -- Grouped from a single pass rather than repeated ones: plausible, but
+    -- not yet corroborated by the vehicle coming back.
+    provisional    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS cooccurrence (
@@ -117,8 +125,33 @@ class Database:
     def init_schema(self) -> None:
         conn = self.connect()
         with self.write_lock, conn:
+            existing = int(conn.execute("PRAGMA user_version").fetchone()[0])
             conn.executescript(SCHEMA)
+            self._migrate(conn, existing)
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection, from_version: int) -> None:
+        """Bring an existing database up to SCHEMA_VERSION.
+
+        CREATE TABLE IF NOT EXISTS leaves older tables as they are, so columns
+        added later have to be filled in here. Version 0 means a brand new
+        file, which the schema script has already built correctly.
+        """
+        if from_version == 0:
+            return
+        columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(sensors)").fetchall()
+        }
+        if "alias_of" not in columns:
+            conn.execute("ALTER TABLE sensors ADD COLUMN alias_of INTEGER")
+        vehicle_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(vehicles)").fetchall()
+        }
+        if "provisional" not in vehicle_columns:
+            conn.execute(
+                "ALTER TABLE vehicles ADD COLUMN provisional INTEGER NOT NULL DEFAULT 0"
+            )
 
     def close(self) -> None:
         conn = getattr(self._local, "conn", None)
@@ -394,6 +427,7 @@ def _sensor(row: sqlite3.Row) -> Sensor:
         vehicle_id=row["vehicle_id"],
         wheel_label=row["wheel_label"],
         pinned=bool(row["pinned"]),
+        alias_of=row["alias_of"],
     )
 
 
@@ -417,4 +451,5 @@ def _vehicle(row: sqlite3.Row) -> Vehicle:
         created_at=float(row["created_at"]),
         auto_generated=bool(row["auto_generated"]),
         needs_review=bool(row["needs_review"]),
+        provisional=bool(row["provisional"]),
     )

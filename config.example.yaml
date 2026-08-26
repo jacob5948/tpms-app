@@ -48,6 +48,17 @@ sessions:
   # How often the background sweeper closes sightings that have gone quiet.
   sweep_interval_seconds: 15
 
+aliases:
+  # Several rtl_433 decoders will match the same RF burst with different
+  # framing, so one transmitter appears two or three times under different
+  # protocol names and IDs. They are identified by an identical signal level
+  # at the identical instant -- two decoders parsing the same burst report
+  # byte-identical RSSI and SNR; two real transmitters essentially never do.
+  time_tolerance: 2.0
+  min_shared_bursts: 1
+  min_share_ratio: 0.5
+  auto_interval_seconds: 300
+
 clustering:
   # Two sensors "co-occur" when heard within this many seconds of each other.
   window_seconds: 10
@@ -63,6 +74,14 @@ clustering:
   # Components larger than this are flagged for manual review rather than
   # auto-committed -- an oversized component is almost always a bad merge.
   max_cluster_size: 6
+
+  # Group sensors heard together in a SINGLE pass when they look like one
+  # vehicle: same decoder, comparable signal level. Most vehicles on a public
+  # road are only ever heard once, so with this off they never group at all.
+  # Such vehicles are marked "provisional" until a return visit confirms them.
+  # Turn off if you only care about vehicles you see repeatedly.
+  single_pass: true
+  single_pass_rssi_spread: 10.0
 
   # Re-run clustering automatically this often (seconds). 0 disables.
   auto_interval_seconds: 300

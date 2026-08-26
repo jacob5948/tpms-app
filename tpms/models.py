@@ -100,6 +100,13 @@ class Sensor:
     vehicle_id: int | None
     wheel_label: str | None
     pinned: bool
+    #: Set when this is the same transmitter as another sensor, decoded by a
+    #: different rtl_433 protocol.
+    alias_of: int | None = None
+
+    @property
+    def is_alias(self) -> bool:
+        return self.alias_of is not None
 
     @property
     def key(self) -> tuple[str, str]:
@@ -137,6 +144,8 @@ class Vehicle:
     created_at: float
     auto_generated: bool
     needs_review: bool = False
+    #: Grouped from one pass only, not yet corroborated by a return visit.
+    provisional: bool = False
 
     @property
     def display(self) -> str:

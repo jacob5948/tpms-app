@@ -9,6 +9,15 @@
   {{ 'auto-clustered' if vehicle.auto_generated else 'manually curated' }}
 </p>
 
+{% if vehicle.provisional %}
+<div class="note">
+  <strong>Provisional.</strong> These sensors were heard together on a single
+  pass and share a decoder and signal level, which is consistent with one
+  vehicle but not proof. It will be confirmed automatically if they are heard
+  together again on a later pass. Naming the vehicle also locks the grouping in.
+</div>
+{% endif %}
+
 {% if vehicle.needs_review %}
 <div class="note">
   This cluster holds {{ sensors | length }} sensors &mdash; more than a single

@@ -62,6 +62,8 @@ is involved:
 | `tpms serve` | Run capture and the web UI. `--no-radio` serves stored data only. |
 | `tpms replay FILE.jsonl` | Ingest a recorded `rtl_433 -F json` capture. `--synthetic` generates one. |
 | `tpms recluster` | Rebuild vehicle clusters. `--dry-run` reports without writing; `-v` shows edge weights. |
+| `tpms aliases` | List sensors that are one transmitter decoded by several protocols. |
+| `tpms diagnose` | Explain why sensors are or are not grouping, with the nearest misses. |
 | `tpms export --since 7d -o out.csv` | Export the sighting log as CSV. |
 | `tpms status` | Summarise the database from the terminal. |
 | `tpms simulate -o capture.jsonl` | Write synthetic capture data to a file. |
@@ -92,6 +94,30 @@ and over, across independent passes. That is the whole signal.
 4. **Components.** Connected components become vehicles. Anything larger than
    `max_cluster_size` (default 6) is assigned but flagged `needs review` in the
    UI, since an oversized component is nearly always a bad merge.
+
+### Duplicate decodes come first
+
+Several rtl_433 TPMS decoders will match the same RF burst with different
+framing, so one physical sensor shows up two or three times under different
+protocol names — `Jansite/6cd2eb3` and `Ford/6cd2eb33`, `Jansite/c20f14d` and
+`Citroen/0f14dbd2`. Left alone these phantoms inflate the sensor list and, since
+they co-occur perfectly by construction, cluster into vehicles that do not exist.
+
+They are found by signal level: rtl_433 reports RSSI and SNR per burst, so two
+decoders parsing the *same* burst report byte-identical values at the same
+instant, while two real transmitters — even two wheels on one car — essentially
+never do. Duplicates are folded into one canonical sensor before clustering runs.
+`tpms aliases` lists what was merged.
+
+### Vehicles seen only once
+
+Most vehicles on a public road pass once and never return, so they can never
+reach `min_cooccurrences`. When `clustering.single_pass` is on (the default),
+sensors heard together in one pass that share a decoder and a comparable signal
+level are grouped anyway, and the vehicle is marked **provisional**. It is
+promoted to confirmed if the same sensors are heard together again.
+
+Turn `single_pass` off if you only care about vehicles that visit repeatedly.
 
 ### The known limitation
 
@@ -126,6 +152,8 @@ likely to touch:
 | `radio.all_protocols` | `false` | `true` decodes everything, not just TPMS. Costs CPU. |
 | `sessions.gap_seconds` | `120` | Must exceed the sensor transmit interval. |
 | `clustering.min_support` | `0.6` | Raise it if unrelated vehicles are merging. |
+| `clustering.single_pass` | `true` | Group vehicles seen only once, marked provisional. |
+| `aliases.min_share_ratio` | `0.5` | Lower it if duplicate decodes are not being merged. |
 
 Every raw `rtl_433` line is also archived to `raw/rtl433-YYYY-MM-DD.jsonl`, so a
 normalization bug can never lose data — re-import with `tpms replay`.
@@ -235,9 +263,9 @@ rtl_433 -f 315M -F json          # drive a car past, or squeeze a tyre valve
 If that is silent, the problem is hardware, gain, antenna or frequency — not
 this program. A quarter-wave whip for 315 MHz is about 23 cm.
 
-**Packets, but no vehicles.** Clustering needs several *separate* passes.
-Check progress with `tpms recluster --dry-run -v`, which prints the edge weights
-and how far each pair is from the thresholds.
+**Packets, but no vehicles.** Run `tpms diagnose`. It reports how many sensors
+are really duplicate decodes, how many have only ever been heard once, and for
+each co-occurring pair exactly what is keeping it from grouping.
 
 **Sensors clustering that shouldn't.** Raise `clustering.min_support` toward
 0.8, or `min_cooccurrences`, then `tpms recluster`.

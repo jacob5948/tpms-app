@@ -84,7 +84,7 @@ def vehicle_intervals(db: Database, vehicle_id: int, join_gap: float, limit: int
 def vehicle_summaries(db: Database, join_gap: float) -> list[dict[str, Any]]:
     rows = db.query(
         """
-        SELECT v.pk, v.name, v.notes, v.auto_generated, v.needs_review,
+        SELECT v.pk, v.name, v.notes, v.auto_generated, v.needs_review, v.provisional,
                COUNT(n.pk)     AS sensor_count,
                MAX(n.last_seen) AS last_seen,
                SUM(n.reading_count) AS reading_count
@@ -105,6 +105,7 @@ def vehicle_summaries(db: Database, join_gap: float) -> list[dict[str, Any]]:
                 "notes": row["notes"],
                 "auto_generated": bool(row["auto_generated"]),
                 "needs_review": bool(row["needs_review"]),
+                "provisional": bool(row["provisional"]),
                 "sensor_count": int(row["sensor_count"] or 0),
                 "reading_count": int(row["reading_count"] or 0),
                 "last_seen": row["last_seen"],
@@ -133,6 +134,7 @@ def sensor_row(db: Database, sensor_pk: int) -> dict[str, Any]:
         "display": sensor.display,
         "wheel_label": sensor.wheel_label,
         "pinned": sensor.pinned,
+        "alias_of": sensor.alias_of,
         "vehicle_id": sensor.vehicle_id,
         "reading_count": sensor.reading_count,
         "first_seen": sensor.first_seen,
@@ -149,14 +151,46 @@ def sensor_row(db: Database, sensor_pk: int) -> dict[str, Any]:
     }
 
 
-def sensor_rows(db: Database) -> list[dict[str, Any]]:
+def sensor_rows(db: Database, include_aliases: bool = False) -> list[dict[str, Any]]:
+    """Sensor table rows.
+
+    Duplicate decodes are folded into their canonical sensor by default --
+    listing them as peers would triple the table and imply vehicles that do
+    not exist.
+    """
     names = {v.pk: v.display for v in db.list_vehicles()}
+    sensors = db.list_sensors()
+    displays = {s.pk: s.display for s in sensors}
+
+    aliases: dict[int, list[str]] = {}
+    for sensor in sensors:
+        if sensor.alias_of is not None:
+            aliases.setdefault(sensor.alias_of, []).append(sensor.display)
+
     out = []
-    for sensor in db.list_sensors():
+    for sensor in sensors:
+        if sensor.alias_of is not None and not include_aliases:
+            continue
         row = sensor_row(db, sensor.pk)
         row["vehicle_name"] = names.get(sensor.vehicle_id) if sensor.vehicle_id else None
+        row["aliases"] = sorted(aliases.get(sensor.pk, []))
+        row["alias_of_display"] = displays.get(sensor.alias_of)
         out.append(row)
     return out
+
+
+def alias_groups(db: Database) -> list[dict[str, Any]]:
+    """Canonical sensors that have duplicate decodes, for the sensors page."""
+    sensors = db.list_sensors()
+    displays = {s.pk: s.display for s in sensors}
+    grouped: dict[int, list[str]] = {}
+    for sensor in sensors:
+        if sensor.alias_of is not None:
+            grouped.setdefault(sensor.alias_of, []).append(sensor.display)
+    return [
+        {"canonical": displays.get(pk, "?"), "aliases": sorted(names)}
+        for pk, names in sorted(grouped.items())
+    ]
 
 
 def heard_now(db: Database) -> list[dict[str, Any]]:

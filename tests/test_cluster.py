@@ -55,17 +55,29 @@ def test_occasional_companion_is_not_absorbed(ingestor, db):
     assert ["w1", "w2", "w3", "w4"] in _groups(db).values()
 
 
-def test_a_long_pass_cannot_manufacture_an_edge(ingestor, db):
+def test_a_long_pass_counts_as_one_vote(ingestor, db):
     """One vehicle sitting in range for a long time is a single vote.
 
     Without per-sighting dedup, 60 bursts would look like 60 independent
     confirmations and any bystander would be swept in.
     """
     _pass(ingestor, "Toyota-TPMS", ["w1", "w2"], 10_000, bursts=60)
-    report = Clusterer(db).run()
-    rows = db.cooccurrence_rows()
-    assert all(row["count"] == 1 for row in rows)
-    assert report.components == []
+    Clusterer(db).run()
+    assert all(row["count"] == 1 for row in db.cooccurrence_rows())
+
+
+def test_a_long_pass_alone_never_confirms_a_vehicle(ingestor, db):
+    """One pass may group provisionally, but must never count as confirmed."""
+    _pass(ingestor, "Toyota-TPMS", ["w1", "w2"], 10_000, bursts=60)
+
+    strict = Clusterer(db, ClusterConfig(single_pass=False)).run()
+    assert strict.components == []
+
+    lenient = Clusterer(db, ClusterConfig(single_pass=True)).run()
+    assert lenient.components == [[1, 2]]
+    assert lenient.provisional == [[1, 2]], "a single pass must stay provisional"
+    assert all(not edge.confirmed for edge in lenient.edges)
+    assert all(v.provisional for v in db.list_vehicles())
 
 
 def test_oversized_cluster_is_flagged_for_review(ingestor, db):

@@ -10,6 +10,7 @@ import logging
 import threading
 from typing import Any, Callable
 
+from .aliases import AliasDetector, AliasReport
 from .cluster import ClusterReport, Clusterer
 from .config import Config
 from .db import Database
@@ -26,8 +27,10 @@ class Service:
         self.db = Database(config.database_path)
         self.ingestor = Ingestor(self.db, config.sessions, config.clustering)
         self.clusterer = Clusterer(self.db, config.clustering)
+        self.alias_detector = AliasDetector(self.db, config.aliases)
         self.start_radio = start_radio
         self.last_cluster_report: ClusterReport | None = None
+        self.last_alias_report: AliasReport | None = None
         self.started_at = now_ts()
 
         self.radio = RadioSupervisor(
@@ -78,7 +81,18 @@ class Service:
             except Exception:  # noqa: BLE001
                 log.exception("clustering failed")
 
+    def detect_aliases(self, dry_run: bool = False) -> AliasReport:
+        report = self.alias_detector.run(dry_run=dry_run)
+        if not dry_run:
+            self.last_alias_report = report
+            log.info("duplicate decodes: %s", report.summary())
+        return report
+
     def recluster(self, dry_run: bool = False) -> ClusterReport:
+        # Duplicates first: an unmerged duplicate co-occurs with its twin
+        # perfectly and would cluster into a vehicle that does not exist.
+        if not dry_run:
+            self.detect_aliases()
         report = self.clusterer.run(dry_run=dry_run)
         if not dry_run:
             self.last_cluster_report = report
@@ -129,6 +143,9 @@ class Service:
             ),
             "clustering": (
                 self.last_cluster_report.summary() if self.last_cluster_report else None
+            ),
+            "aliases": (
+                self.last_alias_report.summary() if self.last_alias_report else None
             ),
             "started_at": self.started_at,
             "database": str(self.config.database_path),

@@ -63,6 +63,7 @@
     Ingest since start: {{ status.ingest.readings }} readings,
     {{ status.ingest.skipped }} non-TPMS skipped,
     {{ status.ingest.malformed }} unparseable lines.<br>
+    {% if status.aliases %}Duplicate decodes: {{ status.aliases }}<br>{% endif %}
     {% if status.clustering %}Last clustering run: {{ status.clustering }}{% endif %}
   </p>
 </div>

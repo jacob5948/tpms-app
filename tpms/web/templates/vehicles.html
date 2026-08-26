@@ -18,6 +18,7 @@
     <h3>
       <a href="/vehicles/{{ v.pk }}">{{ v.name }}</a>
       {% if v.present %}<span class="pill live"><span class="dot live"></span>heard now</span>{% endif %}
+      {% if v.provisional %}<span class="pill warn">provisional</span>{% endif %}
     </h3>
     <div class="meta">
       {{ v.sensor_count }} sensor{{ '' if v.sensor_count == 1 else 's' }} &middot;
@@ -25,6 +26,13 @@
       last heard {{ v.last_seen | ago }}
       {% if not v.named %} &middot; <span class="pill">auto</span>{% endif %}
     </div>
+    {% if v.provisional %}
+    <div class="note">
+      Grouped from a single pass: these sensors were heard together once, share
+      a decoder and a similar signal level. Plausible, but not confirmed until
+      the vehicle comes back.
+    </div>
+    {% endif %}
     {% if v.needs_review %}
     <div class="note">
       {{ v.sensor_count }} sensors clustered together &mdash; more than one

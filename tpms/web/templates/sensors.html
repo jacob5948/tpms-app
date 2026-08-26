@@ -8,6 +8,36 @@
   clustering will not move it back.
 </p>
 
+{% if duplicates %}
+<h2>Duplicate decodes ({{ duplicates | length }})</h2>
+<p class="sub">
+  Several rtl_433 decoders can match the same RF burst with different framing,
+  so one transmitter shows up under several protocol names. These were
+  identified by an identical signal level at the identical instant, and are
+  folded into one sensor below.
+</p>
+<div class="panel scroll">
+  <table>
+    <thead><tr><th>Kept as</th><th>Also decoded as</th></tr></thead>
+    <tbody>
+      {% for group in duplicates %}
+      <tr>
+        <td class="mono">{{ group.canonical }}</td>
+        <td class="mono">{{ group.aliases | join(', ') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="row" style="margin:18px 0 10px">
+  <h2 style="margin:0">Sensors</h2>
+  <form class="inline right" method="post" action="/api/aliases">
+    <button type="submit">Re-scan for duplicates</button>
+  </form>
+</div>
+
 <div class="panel scroll">
   {% if sensors %}
   <table>
@@ -21,6 +51,7 @@
         <td class="mono">
           {% if s.present %}<span class="dot live"></span>{% endif %}{{ s.display }}
           {% if s.pinned %} <span class="pill">pinned</span>{% endif %}
+          {% if s.aliases %} <span class="pill" title="{{ s.aliases | join(', ') }}">+{{ s.aliases | length }} duplicate</span>{% endif %}
         </td>
         <td>
           {% if s.vehicle_id %}<a href="/vehicles/{{ s.vehicle_id }}">{{ s.vehicle_name }}</a>

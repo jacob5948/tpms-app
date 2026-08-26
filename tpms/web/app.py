@@ -131,6 +131,7 @@ def create_app(service: Service) -> FastAPI:
             request,
             "sensors.html",
             sensors=q.sensor_rows(db),
+            duplicates=q.alias_groups(db),
             vehicles=db.list_vehicles(),
         )
 
@@ -298,6 +299,13 @@ def create_app(service: Service) -> FastAPI:
             db.execute("UPDATE sensors SET pinned = 1 WHERE pk = ?", (sensor_pk,))
             db.delete_empty_vehicles()
 
+        return _back(request, "/sensors")
+
+    @app.post("/api/aliases")
+    async def redetect_aliases(request: Request):
+        report = service.detect_aliases()
+        if request.headers.get("accept", "").startswith("application/json"):
+            return JSONResponse({"summary": report.summary()})
         return _back(request, "/sensors")
 
     @app.post("/api/recluster")
