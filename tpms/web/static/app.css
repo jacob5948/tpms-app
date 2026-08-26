@@ -176,13 +176,9 @@ a.pill:hover { text-decoration: none; border-color: var(--accent); color: var(--
 a.wheel { display: block; color: inherit; }
 a.wheel:hover { text-decoration: none; outline: 1px solid var(--accent); }
 
-.legend { gap: 14px; margin-top: 10px; font-size: 12.5px; color: var(--muted); }
-.legend .key { display: inline-flex; align-items: center; gap: 6px; }
-.legend .key i { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
 .chart-caption { margin: 8px 0 0; }
 
-/* Chart controls: a row of ranges, a hover readout, drag to zoom. */
-.chart-plot { position: relative; }
+/* Chart controls: a row of ranges above the plot. uPlot draws the rest. */
 .chart-tools { gap: 6px; margin-bottom: 8px; align-items: center; }
 .chart-tools:empty { display: none; }
 .chip {
@@ -192,19 +188,23 @@ a.wheel:hover { text-decoration: none; outline: 1px solid var(--accent); }
 .chip:hover { border-color: var(--accent); color: var(--ink); }
 .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .chart-window { font-size: 12px; margin-left: 4px; }
-.chart-tip {
-  position: absolute; top: 6px; pointer-events: none; z-index: 2;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  padding: 6px 9px; font-size: 12.5px; white-space: nowrap;
-  box-shadow: 0 4px 14px rgb(0 0 0 / 0.16);
-  display: flex; flex-direction: column; gap: 2px;
+/* uPlot draws to canvas with no notion of our palette, so the chrome around
+   it is themed here and the canvas colours are sampled from the page. */
+.uplot, .u-wrap { max-width: 100%; }
+.u-legend {
+  font-size: 12.5px; color: var(--muted); margin-top: 8px;
+  text-align: left; padding: 0;
 }
-/* display:flex would otherwise beat the UA rule for [hidden]. */
-.chart-tip[hidden] { display: none; }
-.chart-tip .when { color: var(--muted); font-size: 11.5px; }
-.chart-tip .key { display: inline-flex; align-items: center; gap: 6px; }
-.chart-tip .key i { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
-.chart-tip b { font-variant-numeric: tabular-nums; font-weight: 600; }
+/* The legend is a table, so the global th styling shouts at it. */
+.u-legend th, .u-legend td {
+  text-transform: none; letter-spacing: normal; font-weight: 500;
+  font-size: 12.5px; border: 0; padding: 1px 6px 1px 0; white-space: nowrap;
+}
+.u-legend .u-series > * { padding: 1px 6px 1px 0; }
+.u-legend .u-value { color: var(--ink); font-variant-numeric: tabular-nums; }
+.u-legend .u-marker { width: 10px; height: 3px; border-radius: 2px; }
+.u-select { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.u-cursor-x, .u-cursor-y { border-color: color-mix(in srgb, var(--ink) 35%, transparent); }
 
 details.raw summary {
   cursor: pointer; font-size: 14px; font-weight: 550; list-style-position: outside;

@@ -32,6 +32,11 @@ database this builds is a log of vehicle movements. Keep it on your LAN.
 - `rtl_433` — `brew install rtl_433` (macOS) or `apt install rtl-433` (Debian/Pi)
 - Python 3.11+
 
+The web UI has no build step. Its one front-end dependency,
+[uPlot](https://github.com/leeoniya/uPlot) (MIT, ~15 KB gzipped), is vendored
+into `tpms/web/static/vendor/` and served from there, so the Pi never needs to
+reach a CDN.
+
 ## Quick start
 
 ```bash
@@ -203,6 +208,17 @@ automatically, so your correction survives the next clustering run.
   heard alongside**. Every mention of a sensor anywhere links here, so no table
   has to carry every column.
 - **Events** — the appear / last-heard log, filterable, with CSV export.
+
+The Live page opens with an **activity chart**: readings per bucket as bars,
+against the number of distinct transmitters heard in the same bucket as a line
+on its own axis — so one chatty resident sensor cannot be mistaken for traffic.
+Quiet buckets are drawn as zero rather than skipped, because a gap in the
+capture is the thing worth seeing.
+
+Every chart takes a cursor: hover to read values off it, drag to zoom into a
+window, double-click to go back. The range buttons above each chart fetch a
+wider window from the server rather than re-slicing what the page happened to
+ship with, and a range only appears when there is enough history to fill it.
 
 Every table sorts on a header click, and remembers your choice per page. Times
 sort by their real timestamp rather than the words "8m ago", and blanks always
