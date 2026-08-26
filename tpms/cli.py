@@ -116,7 +116,27 @@ def cmd_recluster(args: argparse.Namespace) -> int:
 def cmd_aliases(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     db = Database(config.database_path)
-    report = AliasDetector(db, config.aliases).run(dry_run=args.dry_run)
+    detector = AliasDetector(db, config.aliases)
+
+    if args.explain:
+        cfg = config.aliases
+        print(f"thresholds: dt<={cfg.time_tolerance}s dRSSI<={cfg.rssi_tolerance} "
+              f"dSNR<={cfg.snr_tolerance} min_ratio={cfg.min_share_ratio}")
+        print("\nevery cross-decoder pair heard within 10s, with real deltas:\n")
+        rows = detector.explain()
+        if not rows:
+            print("  none -- no two decoders ever fired close together in time")
+            return 0
+        for row in rows:
+            fmt = lambda v: "  n/a" if v is None else f"{v:5.1f}"
+            verdict = "; ".join(row["blockers"]) if row["blockers"] else "MATCH"
+            shared = f" id'{row['common_id']}'" if row["common_id"] else ""
+            print(f"  {row['a']:22} ~ {row['b']:22} "
+                  f"dt={fmt(row['dt'])}s dRSSI={fmt(row['drssi'])} dSNR={fmt(row['dsnr'])}"
+                  f"{shared}  {verdict}")
+        return 0
+
+    report = detector.run(dry_run=args.dry_run)
 
     print(("[dry run] " if args.dry_run else "") + report.summary())
     for pair in sorted(report.pairs, key=lambda p: -p.shared):
@@ -323,6 +343,11 @@ def build_parser() -> argparse.ArgumentParser:
         "aliases", help="find one transmitter decoded by several protocols"
     )
     aliases.add_argument("--dry-run", action="store_true")
+    aliases.add_argument(
+        "--explain",
+        action="store_true",
+        help="show the real time/RSSI/SNR deltas and what blocked each pair",
+    )
     aliases.set_defaults(func=cmd_aliases)
 
     diagnose = sub.add_parser(

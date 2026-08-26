@@ -132,6 +132,71 @@ class AliasDetector:
             )
         return pairs
 
+    def explain(self, window: float = 10.0) -> list[dict]:
+        """Why each cross-decoder pair did or did not match.
+
+        Reports the deltas actually present in the data rather than assuming
+        what they ought to be -- the thresholds are guesses until measured
+        against a real capture.
+        """
+        cfg = self.config
+        rows = self.db.query(
+            """
+            SELECT a.sensor_pk AS a, b.sensor_pk AS b,
+                   COUNT(*)                    AS pairs,
+                   MIN(ABS(a.ts - b.ts))       AS dt,
+                   MIN(ABS(a.rssi - b.rssi))   AS drssi,
+                   MIN(ABS(a.snr  - b.snr))    AS dsnr,
+                   SUM(a.rssi IS NULL OR b.rssi IS NULL) AS missing_rssi,
+                   SUM(a.snr  IS NULL OR b.snr  IS NULL) AS missing_snr
+              FROM readings a
+              JOIN readings b
+                ON b.sensor_pk > a.sensor_pk
+               AND b.ts BETWEEN a.ts - ? AND a.ts + ?
+              JOIN sensors sa ON sa.pk = a.sensor_pk
+              JOIN sensors sb ON sb.pk = b.sensor_pk
+             WHERE sa.model != sb.model
+             GROUP BY a.sensor_pk, b.sensor_pk
+             ORDER BY dt
+            """,
+            (window, window),
+        )
+        counts = {
+            int(r["pk"]): int(r["reading_count"])
+            for r in self.db.query("SELECT pk, reading_count FROM sensors")
+        }
+        sensors = {s.pk: s for s in self.db.list_sensors()}
+
+        out = []
+        for row in rows:
+            a, b = int(row["a"]), int(row["b"])
+            blockers = []
+            if row["missing_rssi"]:
+                blockers.append("no RSSI recorded")
+            if row["dt"] is not None and row["dt"] > cfg.time_tolerance:
+                blockers.append(f"dt {row['dt']:.1f}s > {cfg.time_tolerance}")
+            if row["drssi"] is not None and row["drssi"] > cfg.rssi_tolerance:
+                blockers.append(f"dRSSI {row['drssi']:.1f} > {cfg.rssi_tolerance}")
+            if row["dsnr"] is not None and row["dsnr"] > cfg.snr_tolerance:
+                blockers.append(f"dSNR {row['dsnr']:.1f} > {cfg.snr_tolerance}")
+            denominator = min(counts.get(a, 0), counts.get(b, 0))
+            out.append(
+                {
+                    "a": sensors[a].display if a in sensors else str(a),
+                    "b": sensors[b].display if b in sensors else str(b),
+                    "pairs": int(row["pairs"]),
+                    "dt": row["dt"],
+                    "drssi": row["drssi"],
+                    "dsnr": row["dsnr"],
+                    "readings": denominator,
+                    "common_id": common_hex_run(
+                        sensors[a].sensor_id, sensors[b].sensor_id
+                    ) if a in sensors and b in sensors else "",
+                    "blockers": blockers,
+                }
+            )
+        return out
+
     def run(self, dry_run: bool = False) -> AliasReport:
         report = AliasReport(pairs=self.find_pairs())
 
