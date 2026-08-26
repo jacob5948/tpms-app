@@ -46,6 +46,9 @@
 <td class="num" data-sort="{{ s.temperature_c if s.temperature_c is not none else '' }}">
   {{- '%.0f' % s.temperature_c if s.temperature_c is not none else '—' -}}</td>
 <td data-sort="{{ s.battery_ok if s.battery_ok is not none else '' }}">{{ battery(s.battery_ok) }}</td>
+<td class="num" data-sort="{{ s.rssi if s.rssi is not none else '' }}"
+    title="Signal level of the most recent reading">
+  {{- '%.1f' % s.rssi if s.rssi is not none else '—' -}}</td>
 {% endmacro %}
 
 {% macro battery(battery_ok) %}

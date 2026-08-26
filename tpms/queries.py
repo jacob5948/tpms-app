@@ -254,6 +254,7 @@ def heard_now(db: Database) -> list[dict[str, Any]]:
                 "pressure_psi": (pressure / 6.894757) if pressure is not None else None,
                 "temperature_c": latest["temperature_c"] if latest else None,
                 "battery_ok": latest["battery_ok"] if latest else None,
+                "rssi": latest["rssi"] if latest else None,
                 "vehicle_id": sensor.vehicle_id,
                 "vehicle_name": names.get(sensor.vehicle_id) if sensor.vehicle_id else None,
                 "started_at": sighting.started_at,

@@ -7,8 +7,8 @@
 <div class="scroll"><table>
   <thead><tr>
     <th>Sensor</th><th>Vehicle</th><th>Band</th>
-    <th class="num">psi</th><th class="num">&deg;C</th><th>Battery</th>
-    <th>First heard</th><th>Last heard</th><th class="num">Readings</th><th class="num">RSSI</th>
+    <th class="num">psi</th><th class="num">&deg;C</th><th>Battery</th><th class="num">RSSI</th>
+    <th>First heard</th><th>Last heard</th><th class="num">Readings</th><th class="num">Peak</th>
   </tr></thead>
   <tbody>
     {% for h in heard %}
@@ -20,7 +20,9 @@
       <td title="{{ h.started_at_iso }}" data-sort="{{ h.started_at }}">{{ h.started_at | ago }}</td>
       <td data-ts="{{ h.last_reading_at }}" data-sort="{{ h.last_reading_at }}">{{ h.last_reading_at | ago }}</td>
       <td class="num">{{ h.reading_count }}</td>
-      <td class="num">{{ '%.1f' % h.max_rssi if h.max_rssi is not none else '—' }}</td>
+      <td class="num" data-sort="{{ h.max_rssi if h.max_rssi is not none else '' }}"
+          title="Strongest reading of this sighting">
+        {{- '%.1f' % h.max_rssi if h.max_rssi is not none else '—' -}}</td>
     </tr>
     {% endfor %}
   </tbody>
