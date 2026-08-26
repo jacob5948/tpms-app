@@ -102,7 +102,7 @@
         <td>{{ m.sensor_link(o.pk, o.display) }}</td>
         <td>{{ m.vehicle_cell(o.vehicle_id, o.vehicle_name) }}</td>
         <td class="num">{{ o.count }}</td>
-        <td class="num">
+        <td class="num" data-sort="{{ o.support }}">
           <span class="bar{{ ' muted-bar' if o.duplicate }}" style="--pct:{{ (o.support * 100) | round | int }}%"></span>
           {{ '%.0f%%' % (o.support * 100) }}
         </td>
@@ -112,7 +112,7 @@
           {% elif o.vehicle_id and o.vehicle_id == s.vehicle_id %}<span class="pill warn">grouped anyway</span>
           {% else %}<span class="pill">too weak</span>{% endif %}
         </td>
-        <td>{{ o.last_at | ago }}</td>
+        <td data-sort="{{ o.last_at }}">{{ o.last_at | ago }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -154,9 +154,9 @@
     <tbody>
       {% for x in s.sightings %}
       <tr>
-        <td>{{ x.started_at | iso }}</td>
-        <td>{% if x.open %}<span class="pill live">still audible</span>{% else %}{{ x.ended_at | iso }}{% endif %}</td>
-        <td class="num">{{ x.duration | duration }}</td>
+        <td data-sort="{{ x.started_at }}">{{ x.started_at | iso }}</td>
+        <td data-sort="{{ x.ended_at or x.started_at }}">{% if x.open %}<span class="pill live">still audible</span>{% else %}{{ x.ended_at | iso }}{% endif %}</td>
+        <td class="num" data-sort="{{ x.duration }}">{{ x.duration | duration }}</td>
         <td class="num">{{ x.reading_count }}</td>
         <td class="num">{{ '%.1f' % x.max_rssi if x.max_rssi is not none else '—' }}</td>
         <td class="band">{{ x.band or '—' }}</td>

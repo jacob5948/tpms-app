@@ -36,9 +36,9 @@
     <tbody>
       {% for e in events %}
       <tr>
-        <td>{{ e.started_at_iso }}</td>
-        <td>{% if e.open %}<span class="pill live">still audible</span>{% else %}{{ e.last_reading_at_iso }}{% endif %}</td>
-        <td class="num">{{ e.duration | duration }}</td>
+        <td data-sort="{{ e.started_at }}">{{ e.started_at_iso }}</td>
+        <td data-sort="{{ e.last_reading_at }}">{% if e.open %}<span class="pill live">still audible</span>{% else %}{{ e.last_reading_at_iso }}{% endif %}</td>
+        <td class="num" data-sort="{{ e.duration }}">{{ e.duration | duration }}</td>
         <td>{{ m.sensor_link(e.sensor_pk, e.display, e.wheel_label) }}</td>
         <td>{{ m.vehicle_cell(e.vehicle_id, e.vehicle_name) }}</td>
         <td class="num">{{ e.reading_count }}</td>

@@ -27,7 +27,7 @@
 
 <h2>Incoming readings</h2>
 <div class="panel scroll" id="feed">
-  <table>
+  <table data-nosort>
     <thead><tr>
       <th>Time</th><th>Sensor</th><th>Vehicle</th>
       <th class="num">psi</th><th class="num">&deg;C</th><th class="num">RSSI</th><th>Band</th>
@@ -90,7 +90,9 @@ function refreshHeard() {
   pending = setTimeout(async () => {
     try {
       const html = await (await fetch('/api/heard-now.html')).text();
-      document.getElementById('heard-panel').innerHTML = html;
+      const panel = document.getElementById('heard-panel');
+      panel.innerHTML = html;
+      window.initSortable(panel);   // the swapped-in table needs headers wired
     } catch (e) { /* the SSE pill already shows the connection state */ }
   }, 1500);
 }

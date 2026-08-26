@@ -17,8 +17,8 @@
       <td>{{ m.vehicle_cell(h.vehicle_id, h.vehicle_name) }}</td>
       <td class="band">{{ h.band or '—' }}</td>
       {{ m.reading_cells(h) }}
-      <td title="{{ h.started_at_iso }}">{{ h.started_at | ago }}</td>
-      <td data-ts="{{ h.last_reading_at }}">{{ h.last_reading_at | ago }}</td>
+      <td title="{{ h.started_at_iso }}" data-sort="{{ h.started_at }}">{{ h.started_at | ago }}</td>
+      <td data-ts="{{ h.last_reading_at }}" data-sort="{{ h.last_reading_at }}">{{ h.last_reading_at | ago }}</td>
       <td class="num">{{ h.reading_count }}</td>
       <td class="num">{{ '%.1f' % h.max_rssi if h.max_rssi is not none else '—' }}</td>
     </tr>

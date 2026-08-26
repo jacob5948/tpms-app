@@ -195,3 +195,16 @@ h1.mono, h1 .mono { font-size: 20px; letter-spacing: -0.01em; }
 /* Long ISO stamps in stat tiles wrapped mid-string. */
 .stat .h { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar.muted-bar::after { background: var(--muted); }
+
+th.sortable { cursor: pointer; user-select: none; position: relative; padding-right: 20px; }
+th.sortable:hover { color: var(--ink); }
+th.sortable::after {
+  /* Hidden until wanted: a marker on every header is noise on a wide table. */
+  content: "↕"; position: absolute; right: 6px; opacity: 0; font-size: 10px;
+  transition: opacity 0.1s;
+}
+th.sortable:hover::after, th.sortable:focus-visible::after { opacity: 0.45; }
+th.sortable.sorted { color: var(--accent); }
+th.sortable.sorted::after { content: "↑"; opacity: 1; }
+th.sortable.sorted.desc::after { content: "↓"; }
+th.sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

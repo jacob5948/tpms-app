@@ -77,7 +77,7 @@
         {{ m.band_cell(s.bands) }}
         {{ m.reading_cells(s) }}
         <td class="num">{{ s.reading_count }}</td>
-        <td title="{{ s.last_seen_iso }}">{{ s.last_seen | ago }}</td>
+        <td title="{{ s.last_seen_iso }}" data-sort="{{ s.last_seen }}">{{ s.last_seen | ago }}</td>
         <td>
           <form class="inline" method="post" action="/api/sensors/{{ s.pk }}">
             <select name="vehicle_id">
@@ -126,9 +126,9 @@
     <tbody>
       {% for i in intervals %}
       <tr>
-        <td>{{ i.started_at | iso }}</td>
-        <td>{% if i.open %}<span class="pill live">still audible</span>{% else %}{{ i.ended_at | iso }}{% endif %}</td>
-        <td class="num">{{ i.duration | duration }}</td>
+        <td data-sort="{{ i.started_at }}">{{ i.started_at | iso }}</td>
+        <td data-sort="{{ i.ended_at or i.started_at }}">{% if i.open %}<span class="pill live">still audible</span>{% else %}{{ i.ended_at | iso }}{% endif %}</td>
+        <td class="num" data-sort="{{ i.duration }}">{{ i.duration | duration }}</td>
         <td class="num">{{ i.sensor_count }}</td>
         <td class="num">{{ i.reading_count }}</td>
       </tr>

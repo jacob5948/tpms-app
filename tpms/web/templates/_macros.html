@@ -29,7 +29,7 @@
 {% endmacro %}
 
 {% macro band_cell(bands) %}
-<td class="band">
+<td class="band" data-sort="{{ bands[0].band if bands else '' }}">
   {%- if bands -%}
     {{ bands[0].label }}
     {%- if bands | length > 1 %}
@@ -41,9 +41,11 @@
 
 {# psi / degrees / battery, in this order, everywhere they appear. #}
 {% macro reading_cells(s) %}
-<td class="num">{{ '%.1f' % s.pressure_psi if s.pressure_psi is not none else '—' }}</td>
-<td class="num">{{ '%.0f' % s.temperature_c if s.temperature_c is not none else '—' }}</td>
-<td>{{ battery(s.battery_ok) }}</td>
+<td class="num" data-sort="{{ s.pressure_psi if s.pressure_psi is not none else '' }}">
+  {{- '%.1f' % s.pressure_psi if s.pressure_psi is not none else '—' -}}</td>
+<td class="num" data-sort="{{ s.temperature_c if s.temperature_c is not none else '' }}">
+  {{- '%.0f' % s.temperature_c if s.temperature_c is not none else '—' -}}</td>
+<td data-sort="{{ s.battery_ok if s.battery_ok is not none else '' }}">{{ battery(s.battery_ok) }}</td>
 {% endmacro %}
 
 {% macro battery(battery_ok) %}

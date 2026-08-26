@@ -39,8 +39,8 @@
         {{ m.band_cell(s.bands) }}
         {{ m.reading_cells(s) }}
         <td class="num">{{ s.reading_count }}</td>
-        <td title="{{ s.first_seen_iso }}">{{ s.first_seen | ago }}</td>
-        <td title="{{ s.last_seen_iso }}">{{ s.last_seen | ago }}</td>
+        <td title="{{ s.first_seen_iso }}" data-sort="{{ s.first_seen }}">{{ s.first_seen | ago }}</td>
+        <td title="{{ s.last_seen_iso }}" data-sort="{{ s.last_seen }}">{{ s.last_seen | ago }}</td>
         <td><a class="btn" href="/sensors/{{ s.pk }}">Open</a></td>
       </tr>
       {% endfor %}
