@@ -467,6 +467,58 @@ class Database:
     def cooccurrence_rows(self) -> list[sqlite3.Row]:
         return self.query("SELECT a, b, count, last_at FROM cooccurrence")
 
+    def sensors_matching(self, pattern: str) -> list[Sensor]:
+        """Sensors whose decoder name contains *pattern*, case-insensitively."""
+        rows = self.query(
+            "SELECT * FROM sensors WHERE LOWER(model) LIKE ? ORDER BY model, sensor_id",
+            (f"%{pattern.strip().lower()}%",),
+        )
+        return [_sensor(r) for r in rows]
+
+    def purge_sensors(self, pks: Sequence[int]) -> dict[str, int]:
+        """Delete sensors and everything hanging off them.
+
+        Readings, sightings and co-occurrence rows cascade, but
+        ``cooccurrence_seen`` holds bare sighting ids with no foreign key, so
+        its rows have to be collected before the sightings disappear or they
+        are orphaned forever.
+        """
+        if not pks:
+            return {"sensors": 0, "readings": 0, "sightings": 0, "cooccurrence": 0}
+
+        marks = ",".join("?" * len(pks))
+        params = list(pks)
+        counts = {
+            "readings": self.query_one(
+                f"SELECT COUNT(*) AS n FROM readings WHERE sensor_pk IN ({marks})", params
+            )["n"],
+            "sightings": self.query_one(
+                f"SELECT COUNT(*) AS n FROM sightings WHERE sensor_pk IN ({marks})", params
+            )["n"],
+            "cooccurrence": self.query_one(
+                f"SELECT COUNT(*) AS n FROM cooccurrence "
+                f"WHERE a IN ({marks}) OR b IN ({marks})",
+                params + params,
+            )["n"],
+        }
+        sighting_pks = [
+            int(r["pk"])
+            for r in self.query(
+                f"SELECT pk FROM sightings WHERE sensor_pk IN ({marks})", params
+            )
+        ]
+
+        conn = self.connect()
+        with self.write_lock, conn:
+            for pk in sighting_pks:
+                conn.execute(
+                    "DELETE FROM cooccurrence_seen WHERE sighting_a = ? OR sighting_b = ?",
+                    (pk, pk),
+                )
+            cur = conn.execute(f"DELETE FROM sensors WHERE pk IN ({marks})", params)
+            counts["sensors"] = cur.rowcount
+        return counts
+
     def sighting_counts(self) -> dict[int, int]:
         rows = self.query(
             "SELECT sensor_pk, COUNT(*) AS n FROM sightings GROUP BY sensor_pk"

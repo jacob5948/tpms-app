@@ -287,6 +287,58 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_purge(args: argparse.Namespace) -> int:
+    """Delete every sensor from one decoder, with its readings and history.
+
+    Defaults to a dry run: this destroys captured data, and the pattern is a
+    substring, so it is easy to match more than intended.
+    """
+    config = load_config(args.config)
+    service = Service(config, start_radio=False)
+
+    preview = service.purge_decoder(args.pattern, dry_run=True)
+    matches = preview["sensors"]
+    if not matches:
+        print(f"no sensors match {args.pattern!r}")
+        available = sorted({s.model for s in service.db.list_sensors()})
+        if available:
+            print("decoders on record: " + ", ".join(available))
+        return 0
+
+    counts = service.db.query_one(
+        "SELECT COUNT(*) AS readings FROM readings WHERE sensor_pk IN "
+        "(SELECT pk FROM sensors WHERE LOWER(model) LIKE ?)",
+        (f"%{args.pattern.strip().lower()}%",),
+    )
+    print(f"{len(matches)} sensor(s) match {args.pattern!r}, "
+          f"{counts['readings']} reading(s):")
+    for name in matches:
+        print(f"  {name}")
+
+    if args.dry_run:
+        print("[dry run] nothing deleted")
+        return 0
+
+    if not args.yes:
+        # Deleting captured data cannot be undone; the raw archive under raw/
+        # is the only copy left afterwards.
+        answer = input("delete these permanently? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("cancelled")
+            return 1
+
+    result = service.purge_decoder(args.pattern)
+    c = result["counts"]
+    print(
+        f"deleted {c['sensors']} sensor(s), {c['readings']} reading(s), "
+        f"{c['sightings']} sighting(s), {c['cooccurrence']} co-occurrence row(s)"
+    )
+    if result["vehicles_removed"]:
+        print(f"removed {result['vehicles_removed']} vehicle(s) left with no sensors")
+    print("clustering: " + result["clustering"])
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     db = Database(config.database_path)
@@ -360,6 +412,22 @@ def build_parser() -> argparse.ArgumentParser:
     recluster = sub.add_parser("recluster", help="rebuild vehicle clusters")
     recluster.add_argument("--dry-run", action="store_true")
     recluster.set_defaults(func=cmd_recluster)
+
+    purge = sub.add_parser(
+        "purge",
+        help="delete every sensor from one decoder (e.g. after excluding it)",
+    )
+    purge.add_argument(
+        "pattern",
+        help="decoder name, matched as a case-insensitive substring of the model",
+    )
+    purge.add_argument(
+        "--dry-run", action="store_true", help="list what would go, delete nothing"
+    )
+    purge.add_argument(
+        "-y", "--yes", action="store_true", help="skip the confirmation prompt"
+    )
+    purge.set_defaults(func=cmd_purge)
 
     aliases = sub.add_parser(
         "aliases", help="find one transmitter decoded by several protocols"

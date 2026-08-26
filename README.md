@@ -64,6 +64,7 @@ is involved:
 | `tpms recluster` | Rebuild vehicle clusters. `--dry-run` reports without writing; `-v` shows edge weights. |
 | `tpms aliases` | List sensors that are one transmitter decoded by several protocols. |
 | `tpms diagnose` | Explain why sensors are or are not grouping, with the nearest misses. |
+| `tpms purge Jansite` | Delete every sensor from one decoder. `--dry-run` first; `-y` skips the prompt. |
 | `tpms export --since 7d -o out.csv` | Export the sighting log as CSV. |
 | `tpms status` | Summarise the database from the terminal. |
 | `tpms simulate -o capture.jsonl` | Write synthetic capture data to a file. |
@@ -163,6 +164,11 @@ automatically, so your correction survives the next clustering run.
   heard alongside**. Every mention of a sensor anywhere links here, so no table
   has to carry every column.
 - **Events** — the appear / last-heard log, filterable, with CSV export.
+
+Every table sorts on a header click, and remembers your choice per page. Times
+sort by their real timestamp rather than the words "8m ago", and blanks always
+sink to the bottom. The live feed is deliberately excluded: new readings arrive
+at the top, which no sort order could survive.
 - **Status** — receiver health, tuned frequency, packet rate, decoder breakdown,
   and how many readings arrived on each band.
 
@@ -203,6 +209,23 @@ likely to touch:
 | `clustering.min_support` | `0.6` | Raise it if unrelated vehicles are merging. |
 | `clustering.single_pass` | `true` | Group vehicles seen only once, marked provisional. |
 | `aliases.min_share_ratio` | `0.5` | Lower it if duplicate decodes are not being merged. |
+
+### Removing sensors a decoder already created
+
+Excluding a protocol only stops new sensors appearing. To clear the ones
+already recorded:
+
+```bash
+tpms purge Jansite --dry-run    # list what would go
+tpms purge Jansite              # asks before deleting
+```
+
+The pattern is a case-insensitive substring of the decoder name, so `Jansite`
+also matches `Jansite-Solar`. It deletes the sensors with their readings,
+sightings and co-occurrence history, removes any vehicle left empty, and
+re-runs clustering. **This is not reversible** — the `raw/` archive is the only
+copy afterwards, and `tpms replay` can rebuild from it. Hence the dry run and
+the confirmation prompt; `--yes` skips the prompt for scripts.
 
 ### Why Jansite is excluded by default
 

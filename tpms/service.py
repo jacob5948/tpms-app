@@ -99,6 +99,35 @@ class Service:
             log.info("clustering: %s", report.summary())
         return report
 
+    def purge_decoder(self, pattern: str, dry_run: bool = False) -> dict[str, Any]:
+        """Remove every sensor whose decoder name matches *pattern*.
+
+        Excluding a protocol in the config stops new phantom sensors being
+        created but leaves the ones already recorded, so this cleans up after
+        it. Vehicles left with no sensors are removed too, and clustering is
+        re-run because deleting a member can change a grouping.
+        """
+        matches = self.db.sensors_matching(pattern)
+        result: dict[str, Any] = {
+            "pattern": pattern,
+            "sensors": [s.display for s in matches],
+            "dry_run": dry_run,
+        }
+        if dry_run or not matches:
+            result["counts"] = {"sensors": len(matches)}
+            return result
+
+        result["counts"] = self.db.purge_sensors([s.pk for s in matches])
+        result["vehicles_removed"] = self.db.delete_empty_vehicles()
+        result["clustering"] = self.recluster().summary()
+        log.info(
+            "purged %s: %s sensor(s), %s reading(s)",
+            pattern,
+            result["counts"]["sensors"],
+            result["counts"]["readings"],
+        )
+        return result
+
     # -- status -----------------------------------------------------------
 
     def status(self) -> dict[str, Any]:
