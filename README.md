@@ -326,6 +326,23 @@ be unloaded from under a device that is in use.
 Then edit `/opt/tpms/config.yaml` (frequency, gain, port) and
 `sudo systemctl restart tpms`.
 
+### Updating
+
+From the checkout on the Pi, as the user who owns it (not with `sudo` — the
+script asks for it where it needs it):
+
+```bash
+./scripts/update-pi.sh
+```
+
+It stops the service, fast-forwards the branch, reinstalls dependencies only
+if `pyproject.toml` moved, starts it again, and then checks the UI actually
+answers. If the service does not stay up, the update is rolled back to the
+commit that was running before it, so a bad pull cannot leave the Pi deaf
+until you next look at it. `--stash` sets aside local edits, `--no-rollback`
+leaves a failed update in place to debug, `--service NAME` points it at a
+differently-named unit.
+
 ### A word on the packaged rtl_433 version
 
 `apt install rtl-433` gives you whatever your Debian release pinned:
