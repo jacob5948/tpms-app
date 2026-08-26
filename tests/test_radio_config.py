@@ -26,9 +26,22 @@ def test_multiple_frequencies_enable_hopping():
     assert cmd[cmd.index("-H") + 1] == "45"
 
 
-def test_tpms_protocol_filter_is_applied_by_default():
-    assert build_command(RadioConfig()).count("-R") == 39
-    assert build_command(RadioConfig(all_protocols=True)).count("-R") == 0
+def test_discovered_protocols_are_passed_as_R_flags():
+    cmd = build_command(RadioConfig(), protocols=[59, 60, 88])
+    assert cmd.count("-R") == 3
+    assert cmd[cmd.index("-R") + 1] == "59"
+
+
+def test_all_protocols_suppresses_the_filter():
+    assert build_command(RadioConfig(all_protocols=True), protocols=[59, 60]).count("-R") == 0
+
+
+def test_no_R_flags_when_discovery_failed():
+    """Passing a protocol number this build rejects makes rtl_433 print its
+    protocol table and exit, which crash-loops. Decoding everything is the
+    safer failure mode."""
+    assert build_command(RadioConfig(), protocols=[]).count("-R") == 0
+    assert build_command(RadioConfig(), protocols=None).count("-R") == 0
 
 
 def test_tuner_options_pass_through():

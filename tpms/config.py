@@ -13,12 +13,13 @@ from typing import Any
 
 import yaml
 
-# rtl_433 protocol numbers whose decoders emit type=TPMS. Sourced from the
-# upstream rtl_433.example.conf device list.
-TPMS_PROTOCOLS: tuple[int, ...] = (
+# Fallback TPMS protocol numbers, used only if the installed rtl_433 cannot be
+# queried. Protocol numbers are NOT stable across rtl_433 versions and older
+# builds simply do not have the higher ones, so the real list is discovered at
+# runtime from `rtl_433 -R help` -- see radio.discover_tpms_protocols.
+FALLBACK_TPMS_PROTOCOLS: tuple[int, ...] = (
     59, 60, 82, 88, 89, 90, 95, 110, 123, 140, 156, 168, 180, 186, 201, 203,
-    208, 212, 225, 226, 241, 248, 252, 257, 275, 295, 298, 299, 321, 322, 328,
-    343, 352, 354, 355, 362, 365, 378, 381,
+    208, 212, 225, 226, 241, 248, 252, 257, 275,
 )
 
 DEFAULTS: dict[str, Any] = {

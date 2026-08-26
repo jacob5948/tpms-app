@@ -66,6 +66,15 @@ is involved:
 | `tpms status` | Summarise the database from the terminal. |
 | `tpms simulate -o capture.jsonl` | Write synthetic capture data to a file. |
 
+### Which protocols get decoded
+
+The TPMS decoder list is read from your installed rtl_433 at startup
+(`rtl_433 -R help`), selecting decoders by name. Protocol numbers are **not**
+stable across rtl_433 versions and older builds simply lack the higher ones, so
+hardcoding them breaks against anything but the exact version they came from.
+If the binary cannot be queried, the app decodes all protocols rather than risk
+passing a number your build rejects. The Status page shows the exact command.
+
 ## How vehicle correlation works
 
 Four sensors bolted to the same car are heard within seconds of each other, over
@@ -114,7 +123,7 @@ likely to touch:
 | --- | --- | --- |
 | `radio.frequencies` | `[315M]` | Add `433.92M` for a second band (enables hopping). |
 | `radio.gain` | `null` (AGC) | A fixed gain often beats AGC for weak TPMS bursts. |
-| `radio.all_protocols` | `false` | `true` decodes everything, not just the 39 TPMS protocols. Costs CPU. |
+| `radio.all_protocols` | `false` | `true` decodes everything, not just TPMS. Costs CPU. |
 | `sessions.gap_seconds` | `120` | Must exceed the sensor transmit interval. |
 | `clustering.min_support` | `0.6` | Raise it if unrelated vehicles are merging. |
 
@@ -140,9 +149,15 @@ Set `web.host: 0.0.0.0` to reach the UI from elsewhere on the LAN.
 
 ## Troubleshooting
 
-**"rtl_433 exited; restarting in Ns".** The log now prints rtl_433's own
-stderr and, for known failures, the fix. The **Status** page shows the same
-thing under "Why the receiver stopped". The two usual causes:
+**"rtl_433 exited; restarting in Ns".** The log prints rtl_433's own output
+and, for known failures, the fix. The **Status** page shows the same under
+"Why the receiver stopped". Common causes:
+
+- *A long protocol table in the output.* rtl_433 was passed a `-R` protocol
+  number it does not know, so it printed its table and quit. This should no
+  longer happen — the TPMS protocol list is discovered from your binary at
+  startup rather than hardcoded — but `radio.all_protocols: true` disables
+  `-R` entirely if you hit it.
 
 - `No supported devices found.` — the dongle is not plugged in, or not passed
   through to the container/VM.

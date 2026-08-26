@@ -9,6 +9,7 @@ from __future__ import annotations
 import collections
 import logging
 import shutil
+import re
 import subprocess
 import threading
 import time
@@ -17,18 +18,27 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from .config import TPMS_PROTOCOLS, RadioConfig
+from .config import FALLBACK_TPMS_PROTOCOLS, RadioConfig
 
 log = logging.getLogger(__name__)
 
 
-def build_command(config: RadioConfig) -> list[str]:
+def build_command(
+    config: RadioConfig,
+    protocols: list[int] | None = None,
+    log_output: bool = False,
+) -> list[str]:
     """Assemble the rtl_433 command line.
 
     ``-M utc`` is not optional: without it rtl_433 stamps readings in local
     time with no offset, which is unusable across DST boundaries.
     """
     cmd = [config.binary, "-F", "json", "-M", "utc", "-M", "level", "-M", "protocol"]
+
+    # Route rtl_433's own diagnostics to stderr, keeping stdout pure JSON.
+    # Without this, modern builds report failures nowhere at all.
+    if log_output:
+        cmd += ["-F", "log:/dev/stderr"]
 
     if config.device is not None:
         cmd += ["-d", str(config.device)]
@@ -46,8 +56,10 @@ def build_command(config: RadioConfig) -> list[str]:
         # Only meaningful with multiple -f; rtl_433 dwells this long per band.
         cmd += ["-H", str(config.hop_seconds)]
 
-    if not config.all_protocols:
-        for protocol in TPMS_PROTOCOLS:
+    # An empty list means discovery failed; decoding everything is far better
+    # than passing a protocol number this build rejects.
+    if not config.all_protocols and protocols:
+        for protocol in protocols:
             cmd += ["-R", str(protocol)]
 
     cmd += [str(a) for a in config.extra_args]
@@ -85,6 +97,13 @@ _FAILURE_HINTS: tuple[tuple[str, str], ...] = (
         "then 'sudo udevadm control --reload-rules && sudo udevadm trigger'.",
     ),
     (
+        "supported device protocols",
+        "rtl_433 rejected one of the -R protocol numbers and printed its "
+        "protocol table instead of starting. This build is older than the "
+        "protocol list being passed to it. Upgrade rtl_433, or set "
+        "'radio.all_protocols: true' in config.yaml to stop passing -R at all.",
+    ),
+    (
         "unknown protocol",
         "rtl_433 rejected a -R protocol number. Your rtl_433 is likely older than "
         "the protocol list in tpms/config.py -- set 'radio.all_protocols: true' "
@@ -105,6 +124,65 @@ def explain_failure(stderr_lines: list[str]) -> str | None:
         if signature in blob:
             return hint
     return None
+
+
+#: Lines of `rtl_433 -R help` look like "    [088]  Toyota TPMS".
+_PROTOCOL_LINE = re.compile(r"^\s*\[(\d+)\]\*?\s+(.+)$", re.MULTILINE)
+
+
+def list_protocols(binary: str) -> dict[int, str]:
+    """Ask the installed rtl_433 which protocols it actually supports."""
+    try:
+        result = subprocess.run(
+            [binary, "-R", "help"], capture_output=True, text=True, timeout=15
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("could not query %s for its protocol list: %s", binary, exc)
+        return {}
+    # rtl_433 prints the list to stdout on some builds and stderr on others.
+    text = (result.stdout or "") + (result.stderr or "")
+    return {
+        int(match.group(1)): match.group(2).strip()
+        for match in _PROTOCOL_LINE.finditer(text)
+    }
+
+
+def discover_tpms_protocols(binary: str) -> list[int]:
+    """TPMS protocol numbers supported by *this* rtl_433 build.
+
+    Protocol numbers are not stable across rtl_433 versions, and passing one
+    the binary does not know makes it print its whole protocol table and exit,
+    which reads like a hardware fault. So the list is derived from the binary
+    rather than hardcoded: decoders are selected by name, with the static
+    fallback list intersected in to catch any whose name omits "TPMS".
+
+    Returns an empty list if the binary cannot be queried; the caller then
+    decodes everything rather than risking a crash loop.
+    """
+    available = list_protocols(binary)
+    if not available:
+        return []
+    selected = {n for n, name in available.items() if "tpms" in name.lower()}
+    selected |= set(FALLBACK_TPMS_PROTOCOLS) & set(available)
+    return sorted(selected)
+
+
+def supports_log_output(binary: str) -> bool:
+    """Whether this rtl_433 has the `-F log` output format.
+
+    Builds from ~v22 on print nothing to stderr by default and say so:
+    'Use "-F log" if you want any messages, warnings, and errors'. Without it
+    a failed start is completely silent. Older builds lack the option entirely
+    and would abort on the unknown argument, so it has to be probed for.
+    """
+    try:
+        result = subprocess.run(
+            [binary, "-F", "help"], capture_output=True, text=True, timeout=15
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    text = ((result.stdout or "") + (result.stderr or "")).lower()
+    return "-f log" in text or "log|kv" in text
 
 
 @dataclass
@@ -134,11 +212,15 @@ class RadioSupervisor:
         self.on_line = on_line
         self.raw_archive_dir = raw_archive_dir
         self.status = RadioStatus(command=build_command(config))
+
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._process: subprocess.Popen[str] | None = None
         self._archive: tuple[str, object] | None = None
-        self._stderr: collections.deque[str] = collections.deque(maxlen=25)
+        self._stderr_head: list[str] = []
+        self._stderr_tail: collections.deque[str] = collections.deque(maxlen=12)
+        self._protocols: list[int] | None = None
+        self._log_output: bool | None = None
 
     # -- lifecycle --------------------------------------------------------
 
@@ -207,12 +289,37 @@ class RadioSupervisor:
                 return
             delay = min(delay * 2, self.config.restart_max_delay)
 
+    def _protocol_args(self) -> list[int]:
+        if self._protocols is None:
+            self._protocols = discover_tpms_protocols(self.config.binary)
+            if self._protocols:
+                log.info(
+                    "%s supports %d TPMS protocols", self.config.binary,
+                    len(self._protocols),
+                )
+            elif not self.config.all_protocols:
+                log.warning(
+                    "could not determine which protocols %s supports; decoding "
+                    "all of them instead", self.config.binary,
+                )
+        return self._protocols
+
+    def _wants_log_output(self) -> bool:
+        if self._log_output is None:
+            self._log_output = supports_log_output(self.config.binary)
+            if not self._log_output:
+                log.debug("%s has no -F log; relying on its stderr", self.config.binary)
+        return self._log_output
+
     def _pump(self) -> None:
-        cmd = build_command(self.config)
+        cmd = build_command(
+            self.config, self._protocol_args(), self._wants_log_output()
+        )
         self.status.command = cmd
         log.info("starting: %s", " ".join(cmd))
 
-        self._stderr.clear()
+        self._stderr_head.clear()
+        self._stderr_tail.clear()
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -261,10 +368,22 @@ class RadioSupervisor:
             if not line:
                 continue
             log.debug("rtl_433: %s", line)
-            self._stderr.append(line)
+            # rtl_433 reports the actual problem first and may then dump its
+            # entire 280-line protocol table, so keeping only the tail loses
+            # the one line that explains anything.
+            if len(self._stderr_head) < 12:
+                self._stderr_head.append(line)
+            else:
+                self._stderr_tail.append(line)
+
+    def _collected_stderr(self) -> list[str]:
+        head, tail = self._stderr_head, list(self._stderr_tail)
+        if not tail:
+            return list(head)
+        return [*head, f"... {len(tail)} more line(s) ...", *tail]
 
     def _report_failure(self, delay: float) -> None:
-        tail = list(self._stderr)
+        tail = self._collected_stderr()
         self.status.stderr_tail = tail
         self.status.hint = explain_failure(tail)
         if tail:
@@ -276,7 +395,7 @@ class RadioSupervisor:
             "unknown" if code is None else code,
             delay,
         )
-        for line in tail[-8:]:
+        for line in tail:
             log.warning("  rtl_433: %s", line)
         if self.status.hint:
             log.warning("  hint: %s", self.status.hint)
