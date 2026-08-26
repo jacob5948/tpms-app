@@ -30,7 +30,7 @@
   <table>
     <thead><tr>
       <th>First heard</th><th>Last heard</th><th class="num">Duration</th>
-      <th>Sensor</th><th>Vehicle</th><th class="num">Readings</th><th class="num">RSSI</th>
+      <th>Sensor</th><th>Vehicle</th><th class="num">Readings</th><th class="num">RSSI</th><th>Band</th>
     </tr></thead>
     <tbody>
       {% for e in events %}
@@ -42,6 +42,7 @@
         <td>{% if e.vehicle_id %}<a href="/vehicles/{{ e.vehicle_id }}">{{ e.vehicle_name }}</a>{% else %}<span class="pill">unassigned</span>{% endif %}</td>
         <td class="num">{{ e.reading_count }}</td>
         <td class="num">{{ '%.1f' % e.max_rssi if e.max_rssi is not none else '-' }}</td>
+        <td>{{ e.band or '-' }}</td>
       </tr>
       {% endfor %}
     </tbody>

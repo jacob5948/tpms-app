@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .db import Database
-from .models import now as now_ts, to_iso
+from .models import band_label, band_of, now as now_ts, to_iso
 
 
 @dataclass
@@ -120,6 +120,30 @@ def vehicle_summaries(db: Database, join_gap: float) -> list[dict[str, Any]]:
     return out
 
 
+
+def sensor_bands(db: Database, sensor_pk: int) -> list[dict[str, Any]]:
+    """Bands a sensor has been heard on, most recently heard first.
+
+    Measured frequencies scatter either side of the tuned band, so they are
+    snapped before counting -- otherwise 314.98 and 315.03 would look like two
+    different bands.
+    """
+    totals: dict[float, dict[str, Any]] = {}
+    for row in db.band_counts(sensor_pk):
+        band = band_of(row["freq_mhz"])
+        if band is None:
+            continue
+        entry = totals.setdefault(
+            band, {"band": band, "label": band_label(band), "count": 0, "last_at": 0.0}
+        )
+        entry["count"] += int(row["n"])
+        entry["last_at"] = max(entry["last_at"], float(row["last_at"]))
+    out = sorted(totals.values(), key=lambda e: e["last_at"], reverse=True)
+    for entry in out:
+        entry["last_at_iso"] = to_iso(entry["last_at"])
+    return out
+
+
 def sensor_row(db: Database, sensor_pk: int) -> dict[str, Any]:
     sensor = db.get_sensor(sensor_pk)
     if sensor is None:
@@ -127,6 +151,7 @@ def sensor_row(db: Database, sensor_pk: int) -> dict[str, Any]:
     latest = db.latest_reading(sensor_pk)
     open_sighting = db.open_sighting_for(sensor_pk)
     pressure = latest["pressure_kpa"] if latest else None
+    bands = sensor_bands(db, sensor_pk)
     return {
         "pk": sensor.pk,
         "model": sensor.model,
@@ -147,6 +172,8 @@ def sensor_row(db: Database, sensor_pk: int) -> dict[str, Any]:
         "battery_ok": latest["battery_ok"] if latest else None,
         "rssi": latest["rssi"] if latest else None,
         "freq_mhz": latest["freq_mhz"] if latest else None,
+        "band": band_label(latest["freq_mhz"]) if latest else None,
+        "bands": bands,
         "present": open_sighting is not None,
     }
 
@@ -213,6 +240,8 @@ def heard_now(db: Database) -> list[dict[str, Any]]:
                 "last_reading_at_iso": to_iso(sighting.last_reading_at),
                 "reading_count": sighting.reading_count,
                 "max_rssi": sighting.max_rssi,
+                "freq_mhz": sighting.freq_mhz,
+                "band": sighting.band,
             }
         )
     out.sort(key=lambda r: r["last_reading_at"], reverse=True)
@@ -244,7 +273,8 @@ def events(
     rows = db.query(
         f"""
         SELECT s.pk, s.started_at, s.last_reading_at, s.ended_at, s.reading_count,
-               s.max_rssi, n.pk AS sensor_pk, n.model, n.sensor_id, n.wheel_label,
+               s.max_rssi, s.freq_mhz, n.pk AS sensor_pk, n.model, n.sensor_id,
+               n.wheel_label,
                n.vehicle_id, v.name AS vehicle_name
           FROM sightings s
           JOIN sensors n ON n.pk = s.sensor_pk
@@ -273,6 +303,8 @@ def events(
             "duration": float(r["last_reading_at"]) - float(r["started_at"]),
             "reading_count": int(r["reading_count"]),
             "max_rssi": r["max_rssi"],
+            "freq_mhz": r["freq_mhz"],
+            "band": band_label(r["freq_mhz"]),
         }
         for r in rows
     ]

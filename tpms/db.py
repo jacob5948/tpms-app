@@ -13,7 +13,7 @@ from typing import Any, Iterable, Sequence
 
 from .models import Reading, Sensor, Sighting, Vehicle
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sensors (
@@ -56,7 +56,10 @@ CREATE TABLE IF NOT EXISTS sightings (
     last_reading_at REAL NOT NULL,
     ended_at        REAL,
     reading_count   INTEGER NOT NULL DEFAULT 1,
-    max_rssi        REAL
+    max_rssi        REAL,
+    -- Band this sensor was last heard on. Only interesting when hopping,
+    -- but recorded always so history stays comparable after a config change.
+    freq_mhz        REAL
 );
 CREATE INDEX IF NOT EXISTS sightings_sensor ON sightings (sensor_pk, started_at);
 CREATE INDEX IF NOT EXISTS sightings_open ON sightings (ended_at) WHERE ended_at IS NULL;
@@ -152,6 +155,24 @@ class Database:
             conn.execute(
                 "ALTER TABLE vehicles ADD COLUMN provisional INTEGER NOT NULL DEFAULT 0"
             )
+        sighting_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(sightings)").fetchall()
+        }
+        if "freq_mhz" not in sighting_columns:
+            conn.execute("ALTER TABLE sightings ADD COLUMN freq_mhz REAL")
+            # Backfill from the readings the sighting covers, so history that
+            # predates this column still shows a band.
+            conn.execute(
+                """
+                UPDATE sightings SET freq_mhz = (
+                    SELECT r.freq_mhz FROM readings r
+                     WHERE r.sensor_pk = sightings.sensor_pk
+                       AND r.ts BETWEEN sightings.started_at AND sightings.last_reading_at
+                       AND r.freq_mhz IS NOT NULL
+                     ORDER BY r.ts DESC LIMIT 1
+                )
+                """
+            )
 
     def close(self) -> None:
         conn = getattr(self._local, "conn", None)
@@ -239,6 +260,31 @@ class Database:
         )
         return int(cur.lastrowid)
 
+    def band_counts(
+        self, sensor_pk: int, include_aliases: bool = True
+    ) -> list[sqlite3.Row]:
+        """Readings per measured frequency for a sensor, newest activity first.
+
+        Duplicate decodes are counted with their canonical sensor by default:
+        they are the same RF burst, so they were necessarily on the same band,
+        and excluding them would understate how often it was heard there.
+        """
+        sql = """
+            SELECT r.freq_mhz AS freq_mhz, COUNT(*) AS n, MAX(r.ts) AS last_at
+              FROM readings r
+              JOIN sensors s ON s.pk = r.sensor_pk
+             WHERE r.freq_mhz IS NOT NULL AND (s.pk = ?{alias})
+             GROUP BY r.freq_mhz
+             ORDER BY last_at DESC
+        """
+        params: list[Any] = [sensor_pk]
+        if include_aliases:
+            sql = sql.format(alias=" OR s.alias_of = ?")
+            params.append(sensor_pk)
+        else:
+            sql = sql.format(alias="")
+        return self.query(sql, params)
+
     def latest_reading(self, sensor_pk: int) -> sqlite3.Row | None:
         return self.query_one(
             "SELECT * FROM readings WHERE sensor_pk = ? ORDER BY ts DESC LIMIT 1",
@@ -290,19 +336,29 @@ class Database:
         return [_sighting(r) for r in rows]
 
     def create_sighting(
-        self, sensor_pk: int, ts: float, rssi: float | None
+        self,
+        sensor_pk: int,
+        ts: float,
+        rssi: float | None,
+        freq_mhz: float | None = None,
     ) -> Sighting:
         cur = self.execute(
             """
             INSERT INTO sightings
-                (sensor_pk, started_at, last_reading_at, reading_count, max_rssi)
-            VALUES (?, ?, ?, 1, ?)
+                (sensor_pk, started_at, last_reading_at, reading_count, max_rssi, freq_mhz)
+            VALUES (?, ?, ?, 1, ?, ?)
             """,
-            (sensor_pk, ts, ts, rssi),
+            (sensor_pk, ts, ts, rssi, freq_mhz),
         )
-        return Sighting(int(cur.lastrowid), sensor_pk, ts, ts, None, 1, rssi)
+        return Sighting(int(cur.lastrowid), sensor_pk, ts, ts, None, 1, rssi, freq_mhz)
 
-    def extend_sighting(self, pk: int, ts: float, rssi: float | None) -> None:
+    def extend_sighting(
+        self,
+        pk: int,
+        ts: float,
+        rssi: float | None,
+        freq_mhz: float | None = None,
+    ) -> None:
         self.execute(
             """
             UPDATE sightings
@@ -312,10 +368,11 @@ class Database:
                                        WHEN ? IS NULL THEN max_rssi
                                        WHEN max_rssi IS NULL THEN ?
                                        ELSE MAX(max_rssi, ?)
-                                     END
+                                     END,
+                   freq_mhz        = COALESCE(?, freq_mhz)
              WHERE pk = ?
             """,
-            (ts, rssi, rssi, rssi, pk),
+            (ts, rssi, rssi, rssi, freq_mhz, pk),
         )
 
     def close_sighting(self, pk: int) -> None:
@@ -440,6 +497,7 @@ def _sighting(row: sqlite3.Row) -> Sighting:
         ended_at=float(row["ended_at"]) if row["ended_at"] is not None else None,
         reading_count=int(row["reading_count"]),
         max_rssi=float(row["max_rssi"]) if row["max_rssi"] is not None else None,
+        freq_mhz=float(row["freq_mhz"]) if row["freq_mhz"] is not None else None,
     )
 
 

@@ -11,6 +11,33 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+# Bands we tune to. rtl_433 reports the tuner's centre frequency plus the
+# decoder's frequency estimate, so a 315 MHz sensor comes back as 314.98 or
+# 315.03 -- snapping to a named band keeps the UI readable and makes
+# "which band was this heard on" answerable with an equality test.
+KNOWN_BANDS = (315.0, 433.92)
+BAND_TOLERANCE = 1.0
+
+
+def band_of(freq_mhz: float | None) -> float | None:
+    """Snap a measured frequency to the band it belongs to."""
+    if freq_mhz is None:
+        return None
+    for band in KNOWN_BANDS:
+        if abs(freq_mhz - band) <= BAND_TOLERANCE:
+            return band
+    return round(float(freq_mhz), 2)
+
+
+def band_label(freq_mhz: float | None) -> str | None:
+    """Human label for the band a reading arrived on."""
+    band = band_of(freq_mhz)
+    if band is None:
+        return None
+    text = f"{band:.2f}".rstrip("0").rstrip(".")
+    return f"{text} MHz"
+
+
 # rtl_433 emits "2026-08-25 15:34:12" or, with -M time:usec, a fractional part.
 _TIME_FORMATS = ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S")
 
@@ -126,6 +153,12 @@ class Sighting:
     ended_at: float | None
     reading_count: int
     max_rssi: float | None
+    #: Band the sensor was heard on during this sighting (last reading wins).
+    freq_mhz: float | None = None
+
+    @property
+    def band(self) -> str | None:
+        return band_label(self.freq_mhz)
 
     @property
     def open(self) -> bool:

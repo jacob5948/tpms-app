@@ -15,7 +15,7 @@ from .cluster import ClusterReport, Clusterer
 from .config import Config
 from .db import Database
 from .ingest import Ingestor
-from .models import now as now_ts
+from .models import band_label, now as now_ts
 from .radio import RadioSupervisor
 
 log = logging.getLogger(__name__)
@@ -116,6 +116,16 @@ class Service:
         recent = self.db.query_one(
             "SELECT COUNT(*) AS n FROM readings WHERE ts >= ?", (now_ts() - 300,)
         )
+        # Which bands packets are actually arriving on -- the answer that
+        # matters when hopping, since a configured band is not a heard one.
+        bands: dict[str, int] = {}
+        for row in self.db.query(
+            "SELECT freq_mhz, COUNT(*) AS n FROM readings "
+            "WHERE freq_mhz IS NOT NULL GROUP BY freq_mhz"
+        ):
+            label = band_label(row["freq_mhz"])
+            if label:
+                bands[label] = bands.get(label, 0) + int(row["n"])
         return {
             "radio": {
                 "running": radio.running,
@@ -135,6 +145,7 @@ class Service:
             "counts": dict(counts) if counts else {},
             "readings_per_min": round((recent["n"] if recent else 0) / 5.0, 2),
             "ingest": dict(self.ingestor.stats),
+            "bands": dict(sorted(bands.items(), key=lambda kv: -kv[1])),
             "decoders": dict(
                 sorted(
                     self.ingestor.decoder_counts.items(),

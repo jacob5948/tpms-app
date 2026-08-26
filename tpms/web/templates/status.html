@@ -68,6 +68,27 @@
   </p>
 </div>
 
+<h2>Bands heard on</h2>
+<p class="sub">
+  Every reading ever stored, by band. Tuning to a band is not the same as
+  hearing anything there -- this is the column that tells you whether a second
+  band is earning its share of the hop cycle.
+</p>
+<div class="panel scroll">
+  {% if status.bands %}
+  <table>
+    <thead><tr><th>Band</th><th class="num">Readings</th></tr></thead>
+    <tbody>
+      {% for band, count in status.bands.items() %}
+      <tr><td class="mono">{{ band }}</td><td class="num">{{ count }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">No readings carry a frequency yet.</div>
+  {% endif %}
+</div>
+
 <h2>Decoders seen this session</h2>
 <div class="panel scroll">
   {% if status.decoders %}

@@ -337,7 +337,7 @@ def create_app(service: Service) -> FastAPI:
         writer = csv.writer(buffer)
         writer.writerow(
             ["vehicle", "sensor", "wheel", "first_heard", "last_heard",
-             "duration_s", "readings", "max_rssi", "still_open"]
+             "duration_s", "readings", "max_rssi", "band", "still_open"]
         )
         for row in rows:
             writer.writerow(
@@ -350,6 +350,7 @@ def create_app(service: Service) -> FastAPI:
                     round(row["duration"], 1),
                     row["reading_count"],
                     row["max_rssi"] if row["max_rssi"] is not None else "",
+                    row["band"] or "",
                     "yes" if row["open"] else "no",
                 ]
             )

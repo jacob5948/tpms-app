@@ -29,14 +29,22 @@ class SessionTracker:
         self.db = db
         self.gap_seconds = gap_seconds
 
-    def record(self, sensor_pk: int, ts: float, rssi: float | None) -> SessionEvent:
+    def record(
+        self,
+        sensor_pk: int,
+        ts: float,
+        rssi: float | None,
+        freq_mhz: float | None = None,
+    ) -> SessionEvent:
         """Extend the sensor's open sighting, or start a new one."""
         current = self.db.open_sighting_for(sensor_pk)
 
         if current is not None and ts - current.last_reading_at <= self.gap_seconds:
-            self.db.extend_sighting(current.pk, ts, rssi)
+            self.db.extend_sighting(current.pk, ts, rssi, freq_mhz)
             current.last_reading_at = max(current.last_reading_at, ts)
             current.reading_count += 1
+            if freq_mhz is not None:
+                current.freq_mhz = freq_mhz
             if rssi is not None:
                 current.max_rssi = (
                     rssi if current.max_rssi is None else max(current.max_rssi, rssi)
@@ -50,7 +58,7 @@ class SessionTracker:
             closed = current
 
         return SessionEvent(
-            sighting=self.db.create_sighting(sensor_pk, ts, rssi),
+            sighting=self.db.create_sighting(sensor_pk, ts, rssi, freq_mhz),
             opened=True,
             closed=closed,
         )

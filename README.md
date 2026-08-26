@@ -158,7 +158,22 @@ automatically, so your correction survives the next clustering run.
   pages with a pressure chart, appearance history, and rename/merge/split/pin.
 - **Sensors** — every transmitter heard, with manual assignment.
 - **Events** — the appear / last-heard log, filterable, with CSV export.
-- **Status** — receiver health, tuned frequency, packet rate, decoder breakdown.
+- **Status** — receiver health, tuned frequency, packet rate, decoder breakdown,
+  and how many readings arrived on each band.
+
+### Which band a sensor was heard on
+
+Every reading carries the frequency `rtl_433` decoded it at, and every sighting
+records the band it was heard on, so the **Band** column on Sensors, Vehicles
+and Events (and the `band` column in CSV exports) answers "315 or 433.92?" per
+sensor. Measured frequencies scatter either side of the tuned band — 314.98 and
+315.03 are the same 315 MHz sensor — so they are snapped to the nearest known
+band before being counted; anything else is shown as measured.
+
+This matters mainly when hopping: a sensor heard on both bands gets a `+1` pill
+listing the split, and the Status page shows whether a second band is earning
+its share of the hop cycle at all. Duplicate decodes are counted with their
+canonical sensor, since an alias is the same RF burst on the same band.
 
 ## Configuration
 

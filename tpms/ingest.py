@@ -192,7 +192,9 @@ class Ingestor:
 
         sensor_pk = self.db.upsert_sensor(reading.model, reading.sensor_id, reading.ts)
         self.db.insert_reading(sensor_pk, reading)
-        event = self.tracker.record(sensor_pk, reading.ts, reading.rssi)
+        event = self.tracker.record(
+            sensor_pk, reading.ts, reading.rssi, reading.freq_mhz
+        )
         self._record_cooccurrence(sensor_pk, event, reading.ts)
 
         sensor = self.db.get_sensor(sensor_pk)

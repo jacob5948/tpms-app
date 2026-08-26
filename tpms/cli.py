@@ -16,7 +16,7 @@ from .cluster import Clusterer
 from .config import load_config
 from .db import Database
 from .ingest import Ingestor
-from .models import to_iso
+from .models import band_label, to_iso
 from .service import Service
 from . import queries as q
 from .synthetic import generate_lines
@@ -262,7 +262,7 @@ def cmd_export(args: argparse.Namespace) -> int:
         writer.writerow(
             [
                 "vehicle", "sensor", "wheel", "first_heard", "last_heard",
-                "duration_s", "readings", "max_rssi", "still_open",
+                "duration_s", "readings", "max_rssi", "band", "still_open",
             ]
         )
         for row in rows:
@@ -276,6 +276,7 @@ def cmd_export(args: argparse.Namespace) -> int:
                     round(row["duration"], 1),
                     row["reading_count"],
                     row["max_rssi"] if row["max_rssi"] is not None else "",
+                    row["band"] or "",
                     "yes" if row["open"] else "no",
                 ]
             )
@@ -304,6 +305,19 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"vehicles:  {counts['vehicles']}")
     print(f"sightings: {counts['sightings']}")
     print(f"latest:    {to_iso(counts['latest']) or '-'}")
+    bands: dict[str, int] = {}
+    for row in db.query(
+        "SELECT freq_mhz, COUNT(*) AS n FROM readings "
+        "WHERE freq_mhz IS NOT NULL GROUP BY freq_mhz"
+    ):
+        label = band_label(row["freq_mhz"])
+        if label:
+            bands[label] = bands.get(label, 0) + int(row["n"])
+    if bands:
+        summary = ", ".join(
+            f"{label} ({n})" for label, n in sorted(bands.items(), key=lambda kv: -kv[1])
+        )
+        print(f"bands:     {summary}")
     for vehicle in q.vehicle_summaries(db, config.sessions.gap_seconds):
         print(
             f"  {vehicle['name']:28} {vehicle['sensor_count']} sensors, "
