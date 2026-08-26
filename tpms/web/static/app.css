@@ -208,3 +208,26 @@ th.sortable.sorted { color: var(--accent); }
 th.sortable.sorted::after { content: "↑"; opacity: 1; }
 th.sortable.sorted.desc::after { content: "↓"; }
 th.sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* -- filtering ---------------------------------------------------------- */
+
+.filter-bar { margin-bottom: 12px; }
+.filter-bar input[type="search"] { flex: 1; max-width: 420px; }
+.filter-count { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+
+/* Stat tiles double as filter toggles, so the counts are the controls. */
+.stat.toggle { cursor: pointer; user-select: none; border: 1px solid transparent; }
+.stat.toggle:hover { border-color: var(--line); }
+.stat.toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.stat.toggle.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-2));
+}
+.stat.toggle.active .k, .stat.toggle.active .v { color: var(--accent); }
+.stat.toggle .h::after { content: ""; }
+.stat.toggle.active .h { visibility: hidden; }
+.stat.toggle.active { position: relative; }
+.stat.toggle.active::after {
+  content: "filtering"; position: absolute; left: 13px; bottom: 11px;
+  font-size: 11.5px; color: var(--accent); font-weight: 600;
+}

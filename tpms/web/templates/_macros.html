@@ -57,8 +57,9 @@
 {%- else -%}<span class="muted">—</span>{%- endif -%}
 {% endmacro %}
 
-{% macro stat(label, value, hint=None) %}
-<div class="stat">
+{# `flag` turns the tile into a filter toggle for the table below it. #}
+{% macro stat(label, value, hint=None, flag=None) %}
+<div class="stat{{ ' toggle' if flag }}"{% if flag %} data-filter-flag="{{ flag }}" aria-pressed="false"{% endif %}>
   <div class="k">{{ label }}</div>
   <div class="v">{{ value }}</div>
   {% if hint %}<div class="h">{{ hint }}</div>{% endif %}

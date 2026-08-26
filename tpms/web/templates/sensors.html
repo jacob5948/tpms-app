@@ -18,14 +18,23 @@
 
 <div class="stats">
   {{ m.stat('Transmitters', sensors | length, 'after folding duplicates') }}
-  {{ m.stat('Audible now', sensors | selectattr('present') | list | length) }}
-  {{ m.stat('Unassigned', sensors | rejectattr('vehicle_id') | list | length, 'not yet in a vehicle') }}
-  {{ m.stat('Duplicate groups', duplicates | length, 'one burst, several decoders') }}
+  {{ m.stat('Audible now', sensors | selectattr('present') | list | length,
+            'click to filter', flag='present') }}
+  {{ m.stat('Unassigned', sensors | rejectattr('vehicle_id') | list | length,
+            'click to filter', flag='unassigned') }}
+  {{ m.stat('Duplicate groups', duplicates | length, 'click to filter', flag='duplicates') }}
+</div>
+
+<div class="row filter-bar" data-filter-for="sensor-table">
+  <input type="search" placeholder="Filter by sensor, vehicle or band&hellip;"
+         aria-label="Filter sensors" autocomplete="off" style="min-width:260px">
+  <span class="filter-count pill" hidden></span>
+  <button type="button" class="filter-clear">Clear</button>
 </div>
 
 <div class="panel scroll">
   {% if sensors %}
-  <table>
+  <table id="sensor-table">
     <thead><tr>
       <th>Sensor</th><th>Vehicle</th><th>Band</th>
       <th class="num">psi</th><th class="num">&deg;C</th><th>Battery</th>
@@ -33,7 +42,9 @@
     </tr></thead>
     <tbody>
       {% for s in sensors %}
-      <tr>
+      <tr data-unassigned="{{ 0 if s.vehicle_id else 1 }}"
+          data-present="{{ 1 if s.present else 0 }}"
+          data-duplicates="{{ 1 if s.aliases else 0 }}">
         <td>{{ m.sensor_cell(s) }}</td>
         <td>{{ m.vehicle_cell(s.vehicle_id, s.vehicle_name) }}</td>
         {{ m.band_cell(s.bands) }}
@@ -49,6 +60,7 @@
   {% else %}
   <div class="empty">Nothing heard yet.</div>
   {% endif %}
+  <div class="empty filter-empty" hidden>No sensor matches this filter.</div>
 </div>
 
 {% if duplicates %}
