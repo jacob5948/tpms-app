@@ -42,8 +42,14 @@
     {% endif %}
     {% if v.needs_review %}
     <div class="note">
-      {{ v.sensor_count }} sensors clustered together &mdash; more than one
-      vehicle's worth. Most likely two vehicles that always travel together.
+      {% if v.review_reason == 'mixed_families' %}
+        These sensors come from several unrelated blocks of IDs. Wheels on one
+        car are numbered together, so this is more likely two vehicles that
+        drove past at the same moment.
+      {% else %}
+        {{ v.sensor_count }} sensors clustered together &mdash; at or past what
+        one vehicle carries. Most likely two vehicles that travel together.
+      {% endif %}
       Split them on the detail page.
     </div>
     {% endif %}

@@ -17,7 +17,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .cluster import Clusterer, UnionFind
 from .config import ClusterConfig
 from .db import Database
 from .models import Sensor
@@ -119,6 +118,8 @@ def families(
     sensors: list[Sensor], max_distance: int = DEFAULT_MAX_DISTANCE
 ) -> list[Family]:
     """Group sensors into candidate wheel sets by ID proximity alone."""
+    from .cluster import UnionFind  # imported here: cluster imports this module
+
     parsed = _parsed(sensors)
     uf = UnionFind()
     pks = [s.pk for s in sensors if s.pk in parsed]
@@ -200,6 +201,8 @@ def evaluate(
       all, how many are ID-near anyway. Those are almost certainly different
       vehicles, so if this is high the signal is noise. Much larger sample.
     """
+    from .cluster import Clusterer  # see families() for why this is not top-level
+
     cfg = config or ClusterConfig()
     sensors = [s for s in db.list_sensors() if s.alias_of is None]
     parsed = _parsed(sensors)

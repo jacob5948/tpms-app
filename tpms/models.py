@@ -177,6 +177,8 @@ class Vehicle:
     created_at: float
     auto_generated: bool
     needs_review: bool = False
+    #: "oversized" or "mixed_families"; None when nothing is wrong.
+    review_reason: str | None = None
     #: Grouped from one pass only, not yet corroborated by a return visit.
     provisional: bool = False
 

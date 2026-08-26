@@ -123,3 +123,36 @@ def test_existing_databases_backfill_the_band_from_their_readings(tmp_path):
         assert db.sightings_for_sensor(1)[0].band == "315 MHz"
     finally:
         db.close()
+
+
+def test_a_v3_database_gains_the_review_reason_column(tmp_path):
+    """The Pi is running v3; opening it must migrate, not fail."""
+    path = tmp_path / "v3.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE sensors (
+            pk INTEGER PRIMARY KEY, model TEXT NOT NULL, sensor_id TEXT NOT NULL,
+            first_seen REAL NOT NULL, last_seen REAL NOT NULL,
+            reading_count INTEGER NOT NULL DEFAULT 0, vehicle_id INTEGER,
+            wheel_label TEXT, pinned INTEGER NOT NULL DEFAULT 0, alias_of INTEGER,
+            UNIQUE (model, sensor_id));
+        CREATE TABLE vehicles (
+            pk INTEGER PRIMARY KEY, name TEXT, notes TEXT, created_at REAL NOT NULL,
+            auto_generated INTEGER NOT NULL DEFAULT 1,
+            needs_review INTEGER NOT NULL DEFAULT 0,
+            provisional INTEGER NOT NULL DEFAULT 0);
+        INSERT INTO vehicles (pk, created_at) VALUES (1, 1000);
+        PRAGMA user_version=3;
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    db = Database(path)
+    try:
+        vehicle = db.get_vehicle(1)
+        assert vehicle is not None
+        assert vehicle.review_reason is None
+    finally:
+        db.close()

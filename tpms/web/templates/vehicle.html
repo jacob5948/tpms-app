@@ -36,9 +36,16 @@
 
 {% if vehicle.needs_review %}
 <div class="note">
-  This cluster holds {{ sensors | length }} sensors &mdash; more than a single
-  vehicle normally carries. Two vehicles that always travel together are
+  {% if vehicle.review_reason == 'mixed_families' %}
+  <strong>Mixed ID blocks.</strong> These sensors' IDs fall into several
+  unrelated blocks. A wheel set is numbered together at the factory, so a
+  cluster spanning blocks is more likely two vehicles that were heard at the
+  same moment than one car. Co-occurrence alone cannot tell those apart.
+  {% else %}
+  This cluster holds {{ sensors | length }} sensors &mdash; at or past what a
+  single vehicle carries. Two vehicles that always travel together are
   indistinguishable by co-occurrence alone, so this may need splitting.
+  {% endif %}
   <form class="inline" method="post" action="/api/vehicles/{{ vehicle.pk }}/review-cleared">
     <button type="submit">It's correct, clear the flag</button>
   </form>

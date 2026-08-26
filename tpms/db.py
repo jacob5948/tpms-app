@@ -13,7 +13,7 @@ from typing import Any, Iterable, Sequence
 
 from .models import Reading, Sensor, Sighting, Vehicle
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sensors (
@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS vehicles (
     created_at     REAL NOT NULL,
     auto_generated INTEGER NOT NULL DEFAULT 1,
     needs_review   INTEGER NOT NULL DEFAULT 0,
+    -- Why it needs review, so the UI can explain rather than just warn.
+    review_reason  TEXT,
     -- Grouped from a single pass rather than repeated ones: plausible, but
     -- not yet corroborated by the vehicle coming back.
     provisional    INTEGER NOT NULL DEFAULT 0
@@ -155,6 +157,8 @@ class Database:
             conn.execute(
                 "ALTER TABLE vehicles ADD COLUMN provisional INTEGER NOT NULL DEFAULT 0"
             )
+        if "review_reason" not in vehicle_columns:
+            conn.execute("ALTER TABLE vehicles ADD COLUMN review_reason TEXT")
         sighting_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(sightings)").fetchall()
         }
@@ -563,4 +567,5 @@ def _vehicle(row: sqlite3.Row) -> Vehicle:
         auto_generated=bool(row["auto_generated"]),
         needs_review=bool(row["needs_review"]),
         provisional=bool(row["provisional"]),
+        review_reason=row["review_reason"],
     )

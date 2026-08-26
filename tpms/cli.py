@@ -110,7 +110,12 @@ def cmd_recluster(args: argparse.Namespace) -> int:
     print(("[dry run] " if args.dry_run else "") + report.summary())
     for members in report.components:
         names = [db.get_sensor(pk).display for pk in members]
-        flag = "  << oversized, review" if len(members) > config.clustering.max_cluster_size else ""
+        if len(members) > config.clustering.max_cluster_size:
+            flag = "  << oversized, review"
+        elif members in report.mixed_families:
+            flag = "  << mixed id blocks, review"
+        else:
+            flag = ""
         print(f"  cluster ({len(members)}): {', '.join(names)}{flag}")
     if args.verbose:
         for edge in sorted(report.edges, key=lambda e: -e.count):

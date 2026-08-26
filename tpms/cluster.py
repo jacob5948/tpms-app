@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from . import idfamily
 from .config import ClusterConfig
 from .db import Database
 from .models import Sensor, now as now_ts
@@ -66,6 +67,9 @@ class ClusterReport:
     sensors_assigned: int = 0
     sensors_unassigned: int = 0
     oversized: list[list[int]] = field(default_factory=list)
+    #: Clusters whose members come from several unrelated id families -- a
+    #: shape that usually means two cars that drove past together.
+    mixed_families: list[list[int]] = field(default_factory=list)
     skipped_manual: list[int] = field(default_factory=list)
     skipped_aliases: list[int] = field(default_factory=list)
     provisional: list[list[int]] = field(default_factory=list)
@@ -78,6 +82,7 @@ class ClusterReport:
             f"{self.sensors_unassigned} unassigned, "
             f"{len(self.provisional)} provisional, "
             f"{len(self.oversized)} oversized, "
+            f"{len(self.mixed_families)} mixed id families, "
             f"{len(self.skipped_manual)} left to manual control, "
             f"{len(self.skipped_aliases)} duplicate decode(s) ignored"
         )
@@ -94,6 +99,7 @@ class Clusterer:
         """Co-occurrence pairs strong enough to imply a shared vehicle."""
         counts = self.db.sighting_counts()
         profiles = self._profiles() if self.config.single_pass else {}
+        self._ids = self._parsed_ids() if self.config.single_pass else {}
         edges: list[Edge] = []
 
         for row in self.db.cooccurrence_rows():
@@ -113,6 +119,19 @@ class Clusterer:
                     Edge(a=a, b=b, count=count, support=support, confirmed=False)
                 )
         return edges
+
+    def _parsed_ids(self) -> dict[int, tuple[str, int]]:
+        """Sensor ids as numbers, for the adjacency test."""
+        if not self.config.id_adjacency:
+            return {}
+        return idfamily._parsed(self.db.list_sensors())
+
+    def _ids_adjacent(self, a: int, b: int) -> bool:
+        if not self.config.id_adjacency:
+            return False
+        return idfamily.are_near(
+            getattr(self, "_ids", {}), a, b, self.config.id_max_distance
+        )
 
     def _profiles(self) -> dict[int, tuple[set[str], float | None]]:
         """Decoders that produced each sensor, and its mean signal level.
@@ -161,9 +180,40 @@ class Clusterer:
             return False
         if not (left[0] & right[0]):
             return False
+        # Near-consecutive ids stand in for the signal test. Wheels on opposite
+        # sides of a car can differ by more than the RSSI spread allows, and a
+        # shared id prefix is the stronger evidence when both are available.
+        if self._ids_adjacent(a, b):
+            return True
         if left[1] is None or right[1] is None:
             return True  # no signal data to judge on; timing alone will do
         return abs(left[1] - right[1]) <= self.config.single_pass_rssi_spread
+
+    def _spans_several_id_families(self, members: list[int]) -> bool:
+        """Do these sensors come from more than one block of ids?
+
+        Wheels on one car sit in one block. A cluster covering several is
+        usually two vehicles that travel together, which co-occurrence alone
+        cannot tell apart -- so it gets flagged for a human rather than split
+        automatically.
+        """
+        if not self.config.id_adjacency or len(members) < 3:
+            return False
+        parsed = getattr(self, "_ids", None)
+        if not parsed:
+            parsed = self._parsed_ids()
+        known = [m for m in members if m in parsed]
+        if len(known) < 3:
+            return False
+
+        uf = UnionFind()
+        for pk in known:
+            uf.find(pk)
+        for i, a in enumerate(known):
+            for b in known[i + 1:]:
+                if idfamily.are_near(parsed, a, b, self.config.id_max_distance):
+                    uf.union(a, b)
+        return len(uf.groups()) > 1
 
     def components(self, edges: list[Edge]) -> list[list[int]]:
         uf = UnionFind()
@@ -223,6 +273,9 @@ class Clusterer:
             oversized = len(members) > self.config.max_cluster_size
             if oversized:
                 report.oversized.append(members)
+            mixed = self._spans_several_id_families(members)
+            if mixed:
+                report.mixed_families.append(members)
             # Provisional until every member has been corroborated by a
             # repeat sighting, not just grouped from one pass.
             provisional = any(
@@ -231,9 +284,11 @@ class Clusterer:
             if provisional:
                 report.provisional.append(members)
             vehicle_id = self._reconcile(members, sensors, report)
+            reason = "oversized" if oversized else "mixed_families" if mixed else None
             self.db.execute(
-                "UPDATE vehicles SET needs_review = ?, provisional = ? WHERE pk = ?",
-                (int(oversized), int(provisional), vehicle_id),
+                "UPDATE vehicles SET needs_review = ?, provisional = ?, "
+                "review_reason = ? WHERE pk = ?",
+                (int(oversized or mixed), int(provisional), reason, vehicle_id),
             )
 
         # A sensor that no longer has strong ties loses its auto-assignment.

@@ -85,6 +85,7 @@ def vehicle_summaries(db: Database, join_gap: float) -> list[dict[str, Any]]:
     rows = db.query(
         """
         SELECT v.pk, v.name, v.notes, v.auto_generated, v.needs_review, v.provisional,
+               v.review_reason,
                COUNT(n.pk)     AS sensor_count,
                MAX(n.last_seen) AS last_seen,
                SUM(n.reading_count) AS reading_count
@@ -105,6 +106,7 @@ def vehicle_summaries(db: Database, join_gap: float) -> list[dict[str, Any]]:
                 "notes": row["notes"],
                 "auto_generated": bool(row["auto_generated"]),
                 "needs_review": bool(row["needs_review"]),
+                "review_reason": row["review_reason"],
                 "provisional": bool(row["provisional"]),
                 "sensor_count": int(row["sensor_count"] or 0),
                 "reading_count": int(row["reading_count"] or 0),

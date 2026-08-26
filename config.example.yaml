@@ -93,6 +93,18 @@ clustering:
   # auto-committed -- an oversized component is almost always a bad merge.
   max_cluster_size: 6
 
+  # Wheel sets appear to be programmed with near-consecutive IDs, so two
+  # sensors from one decoder with close IDs are probably one vehicle. This
+  # never groups anything on its own: the pair must still have been heard
+  # together. It also flags clusters spanning several unrelated ID blocks,
+  # which usually means two cars that drove past at the same moment.
+  # Measure it against your own capture first with `tpms ids`.
+  id_adjacency: true
+
+  # How close two IDs must be. The widest genuine pair seen in the field was
+  # 10042 apart; unrelated sensors were millions apart.
+  id_max_distance: 65536
+
   # Group sensors heard together in a SINGLE pass when they look like one
   # vehicle: same decoder, comparable signal level. Most vehicles on a public
   # road are only ever heard once, so with this off they never group at all.

@@ -170,3 +170,71 @@ def test_duplicate_collapse_does_not_split_a_vehicle(ingestor, db):
 
     models = {s.model for s in canonical}
     assert len(models) > 1, "the canonicals really do differ, which is the point"
+
+
+# -- sensor id adjacency ---------------------------------------------------
+
+def _single_pass(ingestor, model, ids_with_rssi, at):
+    """One pass only, each sensor at its own signal level."""
+    for index, (sensor_id, rssi) in enumerate(ids_with_rssi):
+        ingestor.ingest(
+            Reading(model=model, sensor_id=sensor_id, ts=at + index * 0.4, rssi=rssi)
+        )
+
+
+def test_adjacent_ids_group_a_car_whose_wheels_differ_in_signal(ingestor, db):
+    """Wheels on opposite sides of a car can exceed the RSSI spread.
+
+    The signal test alone would leave these two apart; near-consecutive ids
+    are the stronger evidence when both are available.
+    """
+    _single_pass(ingestor, "Renault", [("f7b207", -6.0), ("f7b209", -24.0)], 10_000)
+    config = ClusterConfig(single_pass_rssi_spread=10.0)
+    Clusterer(db, config).run()
+    assert list(_groups(db).values()) == [["f7b207", "f7b209"]]
+
+
+def test_the_same_pair_stays_apart_with_id_adjacency_off(ingestor, db):
+    _single_pass(ingestor, "Renault", [("f7b207", -6.0), ("f7b209", -24.0)], 10_000)
+    Clusterer(db, ClusterConfig(id_adjacency=False, single_pass_rssi_spread=10.0)).run()
+    assert _groups(db) == {}
+
+
+def test_distant_ids_are_unaffected(ingestor, db):
+    """Adjacency adds groupings; it must not rescue a pair nothing else likes."""
+    _single_pass(ingestor, "Renault", [("f7b207", -6.0), ("1d3e98", -24.0)], 10_000)
+    Clusterer(db, ClusterConfig(single_pass_rssi_spread=10.0)).run()
+    assert _groups(db) == {}
+
+
+def test_adjacent_ids_never_group_sensors_never_heard_together(ingestor, db):
+    """Id proximity is a tie-breaker on co-occurrence, never a substitute.
+
+    Without this, every wheel set on the same production run would merge into
+    one vehicle regardless of where or when it was heard.
+    """
+    ingestor.ingest(Reading(model="Renault", sensor_id="f7b207", ts=10_000, rssi=-6.0))
+    ingestor.ingest(Reading(model="Renault", sensor_id="f7b209", ts=900_000, rssi=-6.0))
+    Clusterer(db).run()
+    assert _groups(db) == {}, "these were never audible at the same time"
+
+
+def test_a_cluster_spanning_several_id_families_is_flagged(ingestor, db):
+    """Three cars that passed together look like one six-wheeled vehicle."""
+    _single_pass(ingestor, "Ford", [
+        ("3779daec", -8.0), ("3779dc0c", -8.4),      # car one
+        ("36c17f56", -8.2), ("36c1581c", -8.6),      # car two
+    ], 10_000)
+    report = Clusterer(db).run()
+    assert report.mixed_families, "a mixed cluster should be flagged for review"
+    flagged = [v for v in db.list_vehicles() if v.needs_review]
+    assert flagged, "the flag has to reach the vehicle row the UI reads"
+
+
+def test_one_family_is_not_flagged(ingestor, db):
+    _single_pass(ingestor, "Ford", [
+        ("3779daec", -8.0), ("3779db00", -8.4), ("3779dc0c", -8.2),
+    ], 10_000)
+    report = Clusterer(db).run()
+    assert not report.mixed_families
+    assert not [v for v in db.list_vehicles() if v.needs_review]

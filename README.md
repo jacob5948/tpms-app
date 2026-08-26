@@ -64,6 +64,7 @@ is involved:
 | `tpms recluster` | Rebuild vehicle clusters. `--dry-run` reports without writing; `-v` shows edge weights. |
 | `tpms aliases` | List sensors that are one transmitter decoded by several protocols. |
 | `tpms diagnose` | Explain why sensors are or are not grouping, with the nearest misses. |
+| `tpms ids` | Measure whether sensor IDs indicate which wheels pair up. `--explain` shows every pair. |
 | `tpms purge Jansite` | Delete every sensor from one decoder. `--dry-run` first; `-y` skips the prompt. |
 | `tpms export --since 7d -o out.csv` | Export the sighting log as CSV. |
 | `tpms status` | Summarise the database from the terminal. |
@@ -147,6 +148,30 @@ from one vehicle by co-occurrence alone. Nothing in the data can separate them.
 That is what the manual split control on the vehicle page is for.
 
 ### Manual overrides always win
+
+### Sensor IDs as a second signal
+
+Wheel sets appear to be programmed with near-consecutive IDs: in a 13-hour
+capture every pair co-occurrence had grouped confidently also had neighbouring
+IDs within its decoder — `Renault/f7b207` and `f7b209` differ by 2 — while
+unrelated sensors were millions apart.
+
+Two sensors from one decoder with IDs within `clustering.id_max_distance` are
+therefore treated as one vehicle even when their signal levels differ more than
+`single_pass_rssi_spread` allows, which is common for wheels on opposite sides
+of a car. **It never groups anything on its own** — the pair must still have
+been heard together, or every wheel set from one production run would merge
+regardless of where it was heard.
+
+The same signal flags clusters spanning several unrelated ID blocks, which
+usually means two cars that drove past at the same moment rather than one
+vehicle with six wheels.
+
+Run `tpms ids` to check the idea against your own capture before trusting it.
+It scores recall against pairs co-occurrence is already sure of, and a
+false-positive rate against same-decoder pairs never heard together — and
+declines to give a verdict at all until the sample is big enough to mean
+something. Set `clustering.id_adjacency: false` if it does not hold up for you.
 
 Clustering never touches a sensor that is **pinned**, or that belongs to a
 vehicle a human **named** or created. Moving a sensor by hand pins it
