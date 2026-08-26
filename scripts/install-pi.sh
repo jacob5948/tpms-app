@@ -61,28 +61,9 @@ fi
 usermod -aG plugdev "$SERVICE_USER"
 
 # ------------------------------------------------------------------ files
-say "Installing to $PREFIX"
-mkdir -p "$PREFIX"
-# Copy the source, leaving runtime state (db, config, raw archive) untouched.
-for item in tpms tests systemd scripts pyproject.toml README.md config.example.yaml; do
-  [ -e "$SRC/$item" ] && cp -r "$SRC/$item" "$PREFIX/"
-done
-
-if [ ! -f "$PREFIX/config.yaml" ]; then
-  cp "$PREFIX/config.example.yaml" "$PREFIX/config.yaml"
-  say "Wrote $PREFIX/config.yaml -- edit it to set frequency, gain and port"
-else
-  say "Keeping your existing $PREFIX/config.yaml"
-fi
-
-say "Building the virtualenv"
-if [ ! -x "$PREFIX/.venv/bin/python" ]; then
-  python3 -m venv "$PREFIX/.venv"
-fi
-"$PREFIX/.venv/bin/pip" install -q --upgrade pip
-"$PREFIX/.venv/bin/pip" install -q -e "$PREFIX"
-
-chown -R "$SERVICE_USER":plugdev "$PREFIX"
+# One shared step with update-pi.sh, so an install and an update can never
+# disagree about what "deployed" means.
+PREFIX="$PREFIX" SERVICE_USER="$SERVICE_USER" "$SRC/scripts/deploy.sh" --pip
 
 # ---------------------------------------------------------------- service
 say "Installing the systemd service"

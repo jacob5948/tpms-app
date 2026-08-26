@@ -375,13 +375,23 @@ script asks for it where it needs it):
 ./scripts/update-pi.sh
 ```
 
-It stops the service, fast-forwards the branch, reinstalls dependencies only
-if `pyproject.toml` moved, starts it again, and then checks the UI actually
-answers. If the service does not stay up, the update is rolled back to the
-commit that was running before it, so a bad pull cannot leave the Pi deaf
+It stops the service, fast-forwards the branch, copies the new code into the
+prefix the service runs from, reinstalls dependencies only if `pyproject.toml`
+moved, starts it again, and then checks the UI actually answers. If the
+service does not stay up, both the checkout and the prefix are rolled back to
+the commit that was running before it, so a bad pull cannot leave the Pi deaf
 until you next look at it. `--stash` sets aside local edits, `--no-rollback`
 leaves a failed update in place to debug, `--service NAME` points it at a
-differently-named unit.
+differently-named unit, `--prefix DIR` overrides where it deploys.
+
+**The service does not run from your checkout.** The unit sets
+`WorkingDirectory=/opt/tpms` and `ProtectHome=true`, so `/home` is not visible
+to it at all; installing and updating both end by copying the source into the
+prefix (`scripts/deploy.sh`, shared by both). Pulling on its own changes
+nothing the service can see. The prefix records the commit it holds in
+`/opt/tpms/.deployed`, and the updater redeploys whenever that disagrees with
+your checkout — so a pull that happened without a deploy gets noticed rather
+than mistaken for "already up to date".
 
 ### A word on the packaged rtl_433 version
 
