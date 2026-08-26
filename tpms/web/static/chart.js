@@ -142,6 +142,13 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
     let plot = null;
     let bounds = null;
     let observer = null;
+    // An axis that stops at the last reading cannot show the silence since.
+    // Callers that know where "now" is push it here.
+    let xMax = opts.xMax != null ? opts.xMax : null;
+    // uPlot fires setScale during construction as well as on a drag-zoom.
+    // Propagating that first one would let whichever facet drew last impose
+    // its data range on the whole sync group.
+    let ready = false;
 
     el.classList.add('chart');
     el.innerHTML =
@@ -208,6 +215,7 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
 
     function setError(message, retry) {
       if (plot) { plot.destroy(); plot = null; }
+      ready = false;
       if (observer) { observer.disconnect(); observer = null; }
       host.classList.remove('is-loading');
       zoomBar.hidden = true;
@@ -246,6 +254,7 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
         ? [Math.min(...shown.flatMap(s => s.points.map(p => p.ts))),
            Math.max(...shown.flatMap(s => s.points.map(p => p.ts)))]
         : null;
+      if (bounds && xMax != null && xMax > bounds[1]) bounds[1] = xMax;
 
       if (table && (tableDrawn || table.open)) drawTable();
 
@@ -318,7 +327,7 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
           setScale: [u => {
             if (!u.scales.x) return;
             showZoom();
-            shareWindow(opts.sync, api, u.scales.x.min, u.scales.x.max);
+            if (ready) shareWindow(opts.sync, api, u.scales.x.min, u.scales.x.max);
           }],
         },
         cursor: {
@@ -342,6 +351,11 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
       };
 
       plot = new uPlot(config, [xs].concat(columns), host);
+      // Set the opening view rather than letting uPlot auto-range to the
+      // data. A scale `range` function would do it in one line, but uPlot
+      // runs that on drag-zooms too, so every zoom would snap back to xMax.
+      if (bounds) plot.setScale('x', { min: bounds[0], max: bounds[1] });
+      ready = true;
       host.style.minHeight = '';
       showZoom();
 
@@ -366,6 +380,11 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
         data = next || [];
         if (activeRange !== undefined) opts.activeRange = activeRange;
         build();
+      },
+      setXMax(ts) {
+        if (ts == null || ts === xMax) return;
+        xMax = ts;
+        if (plot) build();
       },
       setCaption(text) {
         let node = el.querySelector('.chart-caption');

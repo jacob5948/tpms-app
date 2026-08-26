@@ -204,7 +204,7 @@
     onRange: seconds => { load(seconds); loadPresence(seconds); },
   });
 
-  function blocks(intervals) {
+  function blocks(intervals, end) {
     // A flat 0 either side of each block, so the step has something to
     // return to and an isolated appearance is a block rather than a plateau.
     const points = [];
@@ -214,6 +214,11 @@
       points.push({ ts: i.until, value: 1 });
       points.push({ ts: i.until + 0.5, value: 0 });
     });
+    // Carry "away" out to the end of the window. Without this the axis stops
+    // at the last appearance, and a vehicle last heard in March looks just
+    // like one that drove past a minute ago.
+    const last = points.length ? points[points.length - 1].ts : null;
+    if (end != null && last != null && end > last) points.push({ ts: end, value: 0 });
     return points;
   }
 
@@ -227,10 +232,14 @@
       const body = await response.json();
       const range = seconds || 'all';
       presence.setSeries([{ name: 'audible', kind: 'step',
-        points: blocks(body.intervals) }], range);
+        points: blocks(body.intervals, body.end) }], range);
       appearances.setSeries([{ name: 'appearances', kind: 'bar',
         color: window.TPMS_COLORS[1],
         points: body.buckets.map(b => ({ ts: b.ts, value: b.appearances })) }], range);
+      // All three plots share a window, so they must share an end. Without
+      // this the pressure chart stops at its last reading and, being in the
+      // same sync group, drags the other two back with it.
+      [presence, appearances, chart].forEach(c => c.setXMax(body.end));
       const bucket = body.width ? Math.max(1, Math.round(body.width / 60)) : 0;
       appearances.setCaption(bucket
         ? 'Appearances per ' + (bucket >= 120 ? Math.round(bucket / 60) + '-hour'

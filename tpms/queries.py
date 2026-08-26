@@ -141,7 +141,10 @@ def vehicle_presence(
     ]
 
     lo = start if start is not None else (intervals[0]["started_at"] if intervals else None)
-    hi = end if end is not None else (max(i["until"] for i in intervals) if intervals else None)
+    # Ending the axis at the last appearance makes "not seen for three days"
+    # look identical to "seen a minute ago" -- the gap since is the reading,
+    # so the window runs to now unless the caller asked for a fixed end.
+    hi = end if end is not None else (now if intervals else None)
     if lo is None or hi is None or hi <= lo:
         return {"intervals": intervals, "buckets": [], "width": 0, "start": lo, "end": hi}
 

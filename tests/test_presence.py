@@ -118,3 +118,25 @@ def test_the_vehicle_page_hosts_the_chart(tmp_path):
     assert 'id="chart-presence"' in html and 'id="chart-appearances"' in html
     # One range row for the page, not one per chart.
     assert html.count('id="chart-range"') == 1
+
+
+def test_window_runs_to_now_not_to_the_last_appearance(visits):
+    """The gap since a vehicle was last heard is itself the reading. An axis
+    that stops at the final appearance hides it, and every vehicle -- heard a
+    minute ago or last March -- draws identically."""
+    db, vehicle_id = visits
+    presence = q.vehicle_presence(db, vehicle_id, GAP, buckets=8)
+    last = max(i["until"] for i in presence["intervals"])
+    assert presence["end"] >= time.time() - 5
+    assert presence["end"] > last
+    # The silence since is drawn rather than cropped away.
+    assert presence["buckets"][-1]["appearances"] == 0
+    assert presence["buckets"][-1]["ts"] > last
+
+
+def test_an_explicit_end_still_wins(visits):
+    """Only the open-ended case runs to now; a window the caller asked for is
+    the window they get, or the range buttons could not narrow anything."""
+    db, vehicle_id = visits
+    presence = q.vehicle_presence(db, vehicle_id, GAP, start=0, end=60_000)
+    assert presence["end"] == 60_000
