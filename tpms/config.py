@@ -62,6 +62,12 @@ DEFAULTS: dict[str, Any] = {
         "min_support": 0.6,
         "max_cluster_size": 6,
         "single_pass": True,
+        # Wheel sets appear to be programmed with near-consecutive IDs, so two
+        # sensors from one decoder with close IDs are likely one vehicle.
+        # Measure it against your own capture with `tpms ids` before trusting
+        # it; the widest genuine pair seen so far was 10042 apart.
+        "id_adjacency": True,
+        "id_max_distance": 65536,
         "single_pass_rssi_spread": 10.0,
         "auto_interval_seconds": 300,
     },
@@ -137,6 +143,11 @@ class ClusterConfig:
     #: The resulting vehicles are marked provisional until a return visit
     #: corroborates them.
     single_pass: bool = True
+    #: Treat same-decoder sensors with IDs this close as candidates for one
+    #: vehicle. Never creates an edge on its own -- the pair must still have
+    #: been heard together.
+    id_adjacency: bool = True
+    id_max_distance: int = 65536
     #: Widest spread of mean RSSI, in dB, tolerated within one such group.
     single_pass_rssi_spread: float = 10.0
     auto_interval_seconds: float = 300

@@ -11,7 +11,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .aliases import AliasDetector
+from . import idfamily
+from .aliases import AliasDetector, common_hex_run
 from .cluster import Clusterer
 from .config import load_config
 from .db import Database
@@ -287,6 +288,53 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ids(args: argparse.Namespace) -> int:
+    """Report whether sensor IDs say anything about which wheels pair up."""
+    config = load_config(args.config)
+    db = Database(config.database_path)
+    max_distance = config.clustering.id_max_distance
+    card = idfamily.evaluate(db, config.clustering, max_distance)
+    displays = {s.pk: s.display for s in db.list_sensors()}
+
+    print(f"comparing IDs within a decoder, up to {max_distance} apart\n")
+
+    if card.families:
+        print(f"candidate wheel sets by ID alone: {len(card.families)}")
+        for family in card.families:
+            names = ", ".join(displays.get(pk, "?") for pk in family.members)
+            print(f"  {family.model:16} {names}")
+    else:
+        print("no two sensors from one decoder have IDs close enough to pair.")
+
+    print("\nagreement with co-occurrence:")
+    recall = card.recall
+    print(f"  confirmed pairs:      {card.confirmed_pairs}")
+    if recall is not None:
+        print(f"  ...of which ID-near:  {card.confirmed_near} ({recall:.0%})")
+    noise = card.false_positive_rate
+    print(f"  never heard together: {card.apart_pairs}")
+    if noise is not None:
+        print(f"  ...of which ID-near:  {card.apart_near} ({noise:.1%})  <- want this low")
+    print(f"\nverdict: {card.verdict()}")
+
+    if args.explain:
+        print("\nper-pair detail:")
+        sensors = [s for s in db.list_sensors() if s.alias_of is None]
+        parsed = idfamily._parsed(sensors)
+        for i, a in enumerate(sorted(parsed)):
+            for b in sorted(parsed)[i + 1:]:
+                if parsed[a][0] != parsed[b][0]:
+                    continue
+                distance = idfamily.id_distance(parsed[a][1], parsed[b][1])
+                mark = "near" if distance <= max_distance else "    "
+                shared = common_hex_run(
+                    db.get_sensor(a).sensor_id, db.get_sensor(b).sensor_id
+                )
+                print(f"  {mark} {displays[a]:24} {displays[b]:24} "
+                      f"distance={distance}" + (f" shared={shared}" if shared else ""))
+    return 0
+
+
 def cmd_purge(args: argparse.Namespace) -> int:
     """Delete every sensor from one decoder, with its readings and history.
 
@@ -412,6 +460,14 @@ def build_parser() -> argparse.ArgumentParser:
     recluster = sub.add_parser("recluster", help="rebuild vehicle clusters")
     recluster.add_argument("--dry-run", action="store_true")
     recluster.set_defaults(func=cmd_recluster)
+
+    ids = sub.add_parser(
+        "ids", help="measure whether sensor IDs indicate which wheels pair up"
+    )
+    ids.add_argument(
+        "--explain", action="store_true", help="show every same-decoder pair's distance"
+    )
+    ids.set_defaults(func=cmd_ids)
 
     purge = sub.add_parser(
         "purge",
