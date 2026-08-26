@@ -1,13 +1,29 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}{{ vehicle.display }} &middot; TPMS{% endblock %}
+
 {% block body %}
-<p class="sub"><a href="/vehicles">&larr; All vehicles</a></p>
-<h1>{{ vehicle.display }}</h1>
+<nav class="crumbs">
+  <a href="/vehicles">Vehicles</a> <span>/</span>
+  <span class="here">{{ vehicle.display }}</span>
+</nav>
+<h1>
+  {{ vehicle.display }}
+  {% if sensors | selectattr('present') | list %}<span class="pill live"><span class="dot live"></span>heard now</span>{% endif %}
+  {% if vehicle.provisional %}<span class="pill warn">provisional</span>{% endif %}
+</h1>
 <p class="sub">
   {{ sensors | length }} sensor{{ '' if sensors | length == 1 else 's' }} &middot;
   {{ intervals | length }} appearance{{ '' if intervals | length == 1 else 's' }} &middot;
   {{ 'auto-clustered' if vehicle.auto_generated else 'manually curated' }}
 </p>
+
+<div class="stats">
+  {{ m.stat('Wheels heard', sensors | length) }}
+  {{ m.stat('Appearances', intervals | length) }}
+  {{ m.stat('Last heard', (intervals[0].ended_at or intervals[0].started_at) | ago if intervals else '—') }}
+  {{ m.stat('Readings', sensors | sum(attribute='reading_count')) }}
+</div>
 
 {% if vehicle.provisional %}
 <div class="note">
@@ -51,19 +67,17 @@
     <tbody>
       {% for s in sensors %}
       <tr>
-        <td class="mono">{{ s.display }}{% if s.pinned %} <span class="pill">pinned</span>{% endif %}</td>
+        <td>{{ m.sensor_cell(s) }}</td>
         <td>
           <form class="inline" method="post" action="/api/sensors/{{ s.pk }}">
             <input type="text" name="wheel_label" value="{{ s.wheel_label or '' }}" placeholder="e.g. FL" size="6">
             <button type="submit">Set</button>
           </form>
         </td>
-        <td>{% if s.bands %}{{ s.bands[0].label }}{% if s.bands | length > 1 %} <span class="pill" title="{% for b in s.bands %}{{ b.label }}: {{ b.count }} reading(s){% if not loop.last %}, {% endif %}{% endfor %}">+{{ s.bands | length - 1 }}</span>{% endif %}{% else %}-{% endif %}</td>
-        <td class="num">{{ '%.1f' % s.pressure_psi if s.pressure_psi is not none else '-' }}</td>
-        <td class="num">{{ '%.1f' % s.temperature_c if s.temperature_c is not none else '-' }}</td>
-        <td>{% if s.battery_ok == 0 %}<span class="pill warn">low</span>{% elif s.battery_ok == 1 %}ok{% else %}-{% endif %}</td>
+        {{ m.band_cell(s.bands) }}
+        {{ m.reading_cells(s) }}
         <td class="num">{{ s.reading_count }}</td>
-        <td>{{ s.last_seen | ago }}</td>
+        <td title="{{ s.last_seen_iso }}">{{ s.last_seen | ago }}</td>
         <td>
           <form class="inline" method="post" action="/api/sensors/{{ s.pk }}">
             <select name="vehicle_id">
@@ -97,59 +111,10 @@
 
 <h2>Pressure history</h2>
 <div class="panel">
-  {% set series = history.values() | select | list %}
-  {% if series | map('length') | sum > 1 %}
-    {{ chart | default('') }}
-    <div id="chart"></div>
-    <script id="chart-data" type="application/json">
-      {{ history | tojson }}
-    </script>
-    <script>
-      (function () {
-        const data = JSON.parse(document.getElementById('chart-data').textContent);
-        const labels = {{ sensors | map(attribute='pk') | list | tojson }};
-        const names = {{ sensors | map(attribute='display') | list | tojson }};
-        const points = [];
-        Object.entries(data).forEach(([pk, rows]) =>
-          rows.forEach(r => points.push({ pk, ts: r.ts, psi: r.pressure_psi })));
-        if (!points.length) return;
-
-        const W = 900, H = 220, PAD = 38;
-        const xs = points.map(p => p.ts), ys = points.map(p => p.psi);
-        const x0 = Math.min(...xs), x1 = Math.max(...xs);
-        const y0 = Math.min(...ys) - 1, y1 = Math.max(...ys) + 1;
-        const sx = t => PAD + (x1 === x0 ? 0 : (t - x0) / (x1 - x0)) * (W - PAD * 2);
-        const sy = v => H - PAD - (y1 === y0 ? 0 : (v - y0) / (y1 - y0)) * (H - PAD * 2);
-        const colors = ['#4d8bf5', '#3fb950', '#f0b849', '#f85149', '#a371f7', '#39c5cf'];
-
-        let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" ' +
-                  'aria-label="Tyre pressure over time" style="overflow:visible">';
-        [0, 0.5, 1].forEach(f => {
-          const v = y0 + (y1 - y0) * f, y = sy(v);
-          svg += '<line x1="' + PAD + '" x2="' + (W - PAD) + '" y1="' + y + '" y2="' + y +
-                 '" stroke="currentColor" stroke-opacity="0.15"/>' +
-                 '<text x="4" y="' + (y + 4) + '" font-size="11" fill="currentColor" ' +
-                 'fill-opacity="0.55">' + v.toFixed(0) + '</text>';
-        });
-        labels.forEach((pk, i) => {
-          const rows = (data[pk] || []).slice().sort((a, b) => a.ts - b.ts);
-          if (rows.length < 2) return;
-          const d = rows.map((r, j) => (j ? 'L' : 'M') + sx(r.ts).toFixed(1) + ' ' + sy(r.pressure_psi).toFixed(1)).join(' ');
-          svg += '<path d="' + d + '" fill="none" stroke="' + colors[i % colors.length] +
-                 '" stroke-width="1.6" stroke-linejoin="round"/>';
-        });
-        svg += '</svg>';
-
-        const legend = names.map((n, i) =>
-          '<span class="pill" style="color:' + colors[i % colors.length] + '">' + n + '</span>').join(' ');
-        document.getElementById('chart').innerHTML =
-          svg + '<div class="row" style="margin-top:10px">' + legend + '</div>' +
-          '<p class="sub" style="margin:8px 0 0">psi per sensor, oldest to newest reading.</p>';
-      })();
-    </script>
-  {% else %}
-  <div class="empty">Not enough readings yet to plot.</div>
-  {% endif %}
+  <div id="chart"></div>
+  <script id="chart-data" type="application/json">{{ history | tojson }}</script>
+  <script id="chart-names" type="application/json">{{ sensors | map(attribute='display') | list | tojson }}</script>
+  <script id="chart-pks" type="application/json">{{ sensors | map(attribute='pk') | list | tojson }}</script>
 </div>
 
 <h2>Appearances</h2>
@@ -174,4 +139,20 @@
   <div class="empty">No appearances recorded.</div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/chart.js"></script>
+<script>
+(function () {
+  const data  = JSON.parse(document.getElementById('chart-data').textContent);
+  const names = JSON.parse(document.getElementById('chart-names').textContent);
+  const pks   = JSON.parse(document.getElementById('chart-pks').textContent);
+  tpmsChart(document.getElementById('chart'), pks.map((pk, i) => ({
+    name: names[i],
+    points: (data[pk] || []).map(r => ({ ts: r.ts, value: r.pressure_psi })),
+  })), { label: 'Tyre pressure over time',
+         caption: 'psi per wheel, oldest to newest reading.' });
+})();
+</script>
 {% endblock %}

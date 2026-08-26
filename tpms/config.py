@@ -33,6 +33,11 @@ DEFAULTS: dict[str, Any] = {
         "ppm_error": None,
         "sample_rate": None,
         "all_protocols": False,
+        # Jansite matches almost any TPMS burst, so it re-decodes other
+        # makers' packets under its own name. Every one of those is a phantom
+        # sensor the duplicate detector then has to clean up. Excluded by
+        # default; drop it from this list to get the decoder back.
+        "exclude_protocols": ["Jansite"],
         "extra_args": [],
         "raw_archive_dir": "raw",
         "restart_min_delay": 1,
@@ -77,6 +82,8 @@ class RadioConfig:
     ppm_error: int | None = None
     sample_rate: str | None = None
     all_protocols: bool = False
+    #: Decoder names (case-insensitive substrings) to leave out of -R.
+    exclude_protocols: list[str] = field(default_factory=lambda: ["Jansite"])
     extra_args: list[str] = field(default_factory=list)
     raw_archive_dir: str | None = "raw"
     restart_min_delay: float = 1

@@ -85,3 +85,69 @@ def test_example_config_is_valid():
     example = Path(__file__).resolve().parents[1] / "config.example.yaml"
     config = load_config(example)
     assert config.radio.frequencies == ["315M"]
+
+
+# -- protocol exclusion ---------------------------------------------------
+
+PROTOCOL_TABLE = {
+    59: "Toyota TPMS",
+    60: "Ford TPMS",
+    88: "Citroen TPMS",
+    90: "Jansite TPMS",
+    140: "Jansite-Solar TPMS",
+    212: "Renault TPMS",
+}
+
+
+def _fake_table(monkeypatch, table=None):
+    monkeypatch.setattr(
+        "tpms.radio.list_protocols", lambda binary: dict(table or PROTOCOL_TABLE)
+    )
+
+
+def test_excluded_decoders_are_left_out(monkeypatch):
+    """Jansite matches other makers' bursts, inventing phantom sensors."""
+    from tpms.radio import discover_tpms_protocols
+
+    _fake_table(monkeypatch)
+    assert discover_tpms_protocols("rtl_433", ["Jansite"]) == [59, 60, 88, 212]
+
+
+def test_exclusion_is_case_insensitive_and_matches_variants(monkeypatch):
+    from tpms.radio import discover_tpms_protocols
+
+    _fake_table(monkeypatch)
+    selected = discover_tpms_protocols("rtl_433", ["jansite"])
+    assert 90 not in selected and 140 not in selected
+
+
+def test_nothing_is_excluded_without_a_pattern(monkeypatch):
+    from tpms.radio import discover_tpms_protocols
+
+    _fake_table(monkeypatch)
+    assert discover_tpms_protocols("rtl_433", []) == [59, 60, 88, 90, 140, 212]
+
+
+def test_an_unmatched_exclusion_warns_but_keeps_going(monkeypatch, caplog):
+    """A typo must not silently disable nothing, nor drop every decoder."""
+    from tpms.radio import discover_tpms_protocols
+
+    _fake_table(monkeypatch)
+    with caplog.at_level("WARNING"):
+        selected = discover_tpms_protocols("rtl_433", ["Jansit"])  # missing 'e'
+    assert selected == [59, 60, 88, 212], "substring still matches"
+
+    with caplog.at_level("WARNING"):
+        selected = discover_tpms_protocols("rtl_433", ["Nonesuch"])
+    assert selected == [59, 60, 88, 90, 140, 212]
+    assert "no matching" in caplog.text
+
+
+def test_jansite_is_excluded_by_default():
+    assert RadioConfig().exclude_protocols == ["Jansite"]
+
+
+def test_exclusions_can_be_configured_away(tmp_path):
+    (tmp_path / "config.yaml").write_text("radio:\n  exclude_protocols: []\n")
+    config = load_config(tmp_path / "config.yaml")
+    assert config.radio.exclude_protocols == []

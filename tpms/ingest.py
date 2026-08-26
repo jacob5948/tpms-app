@@ -9,7 +9,7 @@ from typing import Any, Callable, Iterable
 
 from .config import ClusterConfig, SessionConfig
 from .db import Database
-from .models import Reading, parse_rtl_time, now as now_ts
+from .models import Reading, band_label, parse_rtl_time, now as now_ts
 from .sessions import SessionEvent, SessionTracker
 
 log = logging.getLogger(__name__)
@@ -198,6 +198,11 @@ class Ingestor:
         self._record_cooccurrence(sensor_pk, event, reading.ts)
 
         sensor = self.db.get_sensor(sensor_pk)
+        vehicle = (
+            self.db.get_vehicle(sensor.vehicle_id)
+            if sensor and sensor.vehicle_id
+            else None
+        )
         self._publish(
             {
                 "type": "reading",
@@ -212,6 +217,14 @@ class Ingestor:
                 "rssi": reading.rssi,
                 "freq_mhz": reading.freq_mhz,
                 "vehicle_id": sensor.vehicle_id if sensor else None,
+                # Name, not just id: the live feed showed "vehicle 3" because
+                # this was the only identity it had to work with.
+                "vehicle_name": vehicle.display if vehicle else None,
+                "wheel_label": sensor.wheel_label if sensor else None,
+                # The feed is a raw packet log, so duplicate decodes belong in
+                # it -- but labelled, or they read as extra transmitters.
+                "duplicate": bool(sensor and sensor.alias_of),
+                "band": band_label(reading.freq_mhz),
                 "sighting_pk": event.sighting.pk,
                 "opened": event.opened,
             }

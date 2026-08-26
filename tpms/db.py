@@ -261,13 +261,14 @@ class Database:
         return int(cur.lastrowid)
 
     def band_counts(
-        self, sensor_pk: int, include_aliases: bool = True
+        self, sensor_pk: int, include_aliases: bool = False
     ) -> list[sqlite3.Row]:
         """Readings per measured frequency for a sensor, newest activity first.
 
-        Duplicate decodes are counted with their canonical sensor by default:
-        they are the same RF burst, so they were necessarily on the same band,
-        and excluding them would understate how often it was heard there.
+        Duplicate decodes are excluded by default. They are the same RF burst
+        matched by a second protocol, so counting them would report a sensor
+        heard twice for every time it actually transmitted, and disagree with
+        the reading count shown beside it.
         """
         sql = """
             SELECT r.freq_mhz AS freq_mhz, COUNT(*) AS n, MAX(r.ts) AS last_at

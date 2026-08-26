@@ -1,0 +1,61 @@
+{#
+  One definition of how each recurring value is rendered.
+
+  A sensor used to appear on five pages with five different sets of columns and
+  no way to click through to it. These macros make every mention of a sensor
+  look the same and link to the same place.
+#}
+
+{% macro sensor_link(pk, display, wheel=None, pinned=False, present=False, aliases=0) %}
+<span class="ident">
+  {%- if present %}<span class="dot live" title="heard now"></span>{% endif -%}
+  <a class="mono" href="/sensors/{{ pk }}">{{ display }}</a>
+  {%- if wheel %} <span class="pill">{{ wheel }}</span>{% endif -%}
+  {%- if pinned %} <span class="pill" title="Manually placed; clustering will not move it">pinned</span>{% endif -%}
+  {%- if aliases %} <span class="pill" title="{{ aliases }} duplicate decode(s) folded in">+{{ aliases }}</span>{% endif -%}
+</span>
+{% endmacro %}
+
+{% macro sensor_cell(s) %}
+{{ sensor_link(s.pk, s.display, s.wheel_label, s.pinned, s.present, s.aliases | length if s.aliases else 0) }}
+{% endmacro %}
+
+{% macro vehicle_cell(vehicle_id, vehicle_name) %}
+{%- if vehicle_id -%}
+<a href="/vehicles/{{ vehicle_id }}">{{ vehicle_name or 'Unnamed vehicle #' ~ vehicle_id }}</a>
+{%- else -%}
+<a class="pill" href="/vehicles#unassigned">unassigned</a>
+{%- endif -%}
+{% endmacro %}
+
+{% macro band_cell(bands) %}
+<td class="band">
+  {%- if bands -%}
+    {{ bands[0].label }}
+    {%- if bands | length > 1 %}
+    <span class="pill" title="{% for b in bands %}{{ b.label }}: {{ b.count }} reading(s){% if not loop.last %}, {% endif %}{% endfor %}">+{{ bands | length - 1 }}</span>
+    {%- endif -%}
+  {%- else -%}&mdash;{%- endif -%}
+</td>
+{% endmacro %}
+
+{# psi / degrees / battery, in this order, everywhere they appear. #}
+{% macro reading_cells(s) %}
+<td class="num">{{ '%.1f' % s.pressure_psi if s.pressure_psi is not none else '—' }}</td>
+<td class="num">{{ '%.0f' % s.temperature_c if s.temperature_c is not none else '—' }}</td>
+<td>{{ battery(s.battery_ok) }}</td>
+{% endmacro %}
+
+{% macro battery(battery_ok) %}
+{%- if battery_ok == 0 -%}<span class="pill warn">low</span>
+{%- elif battery_ok == 1 -%}<span class="pill ok">ok</span>
+{%- else -%}<span class="muted">—</span>{%- endif -%}
+{% endmacro %}
+
+{% macro stat(label, value, hint=None) %}
+<div class="stat">
+  <div class="k">{{ label }}</div>
+  <div class="v">{{ value }}</div>
+  {% if hint %}<div class="h">{{ hint }}</div>{% endif %}
+</div>
+{% endmacro %}

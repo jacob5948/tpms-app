@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}Events &middot; TPMS{% endblock %}
 {% block body %}
 <h1>Events</h1>
@@ -38,11 +39,11 @@
         <td>{{ e.started_at_iso }}</td>
         <td>{% if e.open %}<span class="pill live">still audible</span>{% else %}{{ e.last_reading_at_iso }}{% endif %}</td>
         <td class="num">{{ e.duration | duration }}</td>
-        <td class="mono">{{ e.display }}{% if e.wheel_label %} <span class="pill">{{ e.wheel_label }}</span>{% endif %}</td>
-        <td>{% if e.vehicle_id %}<a href="/vehicles/{{ e.vehicle_id }}">{{ e.vehicle_name }}</a>{% else %}<span class="pill">unassigned</span>{% endif %}</td>
+        <td>{{ m.sensor_link(e.sensor_pk, e.display, e.wheel_label) }}</td>
+        <td>{{ m.vehicle_cell(e.vehicle_id, e.vehicle_name) }}</td>
         <td class="num">{{ e.reading_count }}</td>
         <td class="num">{{ '%.1f' % e.max_rssi if e.max_rssi is not none else '-' }}</td>
-        <td>{{ e.band or '-' }}</td>
+        <td class="band">{{ e.band or '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>

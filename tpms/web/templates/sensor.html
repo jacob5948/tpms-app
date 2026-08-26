@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}{{ s.display }} &middot; TPMS{% endblock %}
+{% block body %}
+
+<nav class="crumbs">
+  <a href="/sensors">Sensors</a> <span>/</span>
+  {% if s.vehicle_id %}<a href="/vehicles/{{ s.vehicle_id }}">{{ s.vehicle_name or 'Unnamed vehicle #' ~ s.vehicle_id }}</a> <span>/</span>{% endif %}
+  <span class="here mono">{{ s.display }}</span>
+</nav>
+
+<div class="page-head">
+  <div>
+    <h1 class="mono">
+      {% if s.present %}<span class="dot live"></span>{% endif %}{{ s.display }}
+      {% if s.wheel_label %}<span class="pill">{{ s.wheel_label }}</span>{% endif %}
+      {% if s.pinned %}<span class="pill">pinned</span>{% endif %}
+    </h1>
+    <p class="sub">
+      {% if s.alias_of %}
+        A duplicate decode of {{ m.sensor_link(s.alias_of, s.alias_of_display) }} &mdash;
+        the same transmitter picked up by a second protocol.
+      {% else %}
+        Decoded by <strong>{{ s.model }}</strong> as ID <strong>{{ s.sensor_id }}</strong>.
+        Identity is the pair: raw IDs collide between protocols.
+      {% endif %}
+    </p>
+  </div>
+</div>
+
+<div class="stats">
+  {{ m.stat('Pressure', ('%.1f psi' % s.pressure_psi) if s.pressure_psi is not none else '—',
+            ('%.0f kPa' % s.pressure_kpa) if s.pressure_kpa is not none else None) }}
+  {{ m.stat('Temperature', ('%.0f °C' % s.temperature_c) if s.temperature_c is not none else '—') }}
+  {{ m.stat('Battery', m.battery(s.battery_ok)) }}
+  {{ m.stat('Band', s.bands[0].label if s.bands else '—',
+            (s.bands | length ~ ' bands heard') if s.bands | length > 1 else None) }}
+  {{ m.stat('Signal', ('%.1f dB' % s.rssi) if s.rssi is not none else '—',
+            ('SNR %.1f' % s.snr) if s.snr is not none else None) }}
+  {{ m.stat('Readings', s.reading_count, s.sightings | length ~ ' sighting(s)') }}
+  {{ m.stat('First heard', s.first_seen | ago, s.first_seen_iso) }}
+  {{ m.stat('Last heard', s.last_seen | ago, s.last_seen_iso) }}
+</div>
+
+<div class="panel">
+  <div class="row">
+    <div>
+      <div class="k">Vehicle</div>
+      <div style="font-size:16px;margin-top:2px">{{ m.vehicle_cell(s.vehicle_id, s.vehicle_name) }}</div>
+    </div>
+    <form class="inline right" method="post" action="/api/sensors/{{ s.pk }}">
+      <input type="text" name="wheel_label" value="{{ s.wheel_label or '' }}" placeholder="Wheel, e.g. FL" size="8">
+      <select name="vehicle_id">
+        <option value="{{ s.vehicle_id or 'none' }}">{{ 'keep vehicle' if s.vehicle_id else 'unassigned' }}</option>
+        <option value="new">new vehicle</option>
+        <option value="none">unassign</option>
+        {% for v in vehicles %}{% if v.pk != s.vehicle_id %}
+        <option value="{{ v.pk }}">move to {{ v.display }}</option>
+        {% endif %}{% endfor %}
+      </select>
+      <button class="primary" type="submit">Apply</button>
+    </form>
+  </div>
+  <p class="sub" style="margin:10px 0 0">
+    Assigning by hand pins the sensor, so clustering will not move it back.
+  </p>
+</div>
+
+{% if s.bands | length > 1 %}
+<div class="note">
+  Heard on more than one band:
+  {% for b in s.bands %}<strong>{{ b.label }}</strong> ({{ b.count }} reading{{ '' if b.count == 1 else 's' }}){{ ', ' if not loop.last }}{% endfor %}.
+  Expected while hopping; on a single-band setup it usually means the decoder's
+  frequency estimate is drifting.
+</div>
+{% endif %}
+
+<h2>Pressure &amp; temperature</h2>
+<div class="panel">
+  <div id="chart-psi"></div>
+  <div id="chart-temp" style="margin-top:18px"></div>
+  <script id="chart-data" type="application/json">{{ s.history | tojson }}</script>
+</div>
+
+<h2>Heard alongside</h2>
+<p class="sub">
+  Sensors audible at the same moments as this one &mdash; the evidence
+  clustering runs on. <strong>Support</strong> is the share of the rarer
+  sensor's sightings the two shared, which is what separates wheels on one car
+  from two cars that passed together once.
+</p>
+<div class="panel scroll">
+  {% if s.heard_with %}
+  <table>
+    <thead><tr>
+      <th>Sensor</th><th>Vehicle</th><th class="num">Shared</th>
+      <th class="num">Support</th><th>Verdict</th><th>Last together</th>
+    </tr></thead>
+    <tbody>
+      {% for o in s.heard_with %}
+      <tr>
+        <td>{{ m.sensor_link(o.pk, o.display) }}</td>
+        <td>{{ m.vehicle_cell(o.vehicle_id, o.vehicle_name) }}</td>
+        <td class="num">{{ o.count }}</td>
+        <td class="num">
+          <span class="bar{{ ' muted-bar' if o.duplicate }}" style="--pct:{{ (o.support * 100) | round | int }}%"></span>
+          {{ '%.0f%%' % (o.support * 100) }}
+        </td>
+        <td>
+          {% if o.duplicate %}<span class="pill">duplicate decode</span>
+          {% elif o.strong %}<span class="pill ok">same vehicle</span>
+          {% elif o.vehicle_id and o.vehicle_id == s.vehicle_id %}<span class="pill warn">grouped anyway</span>
+          {% else %}<span class="pill">too weak</span>{% endif %}
+        </td>
+        <td>{{ o.last_at | ago }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">
+    Never heard at the same time as another sensor. A lone sensor cannot be
+    clustered into a vehicle &mdash; it needs company to correlate with.
+  </div>
+  {% endif %}
+</div>
+
+{% if s.aliases %}
+<h2>Duplicate decodes</h2>
+<p class="sub">
+  The same RF burst matched by other protocols. Their readings are counted
+  here, and clustering ignores them so one transmitter cannot look like three.
+</p>
+<div class="panel">
+  <div class="row">
+    {% for a in s.aliases %}{{ m.sensor_link(a.pk, a.display) }}{% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<h2>Sightings</h2>
+<p class="sub">
+  Each run of readings with no gap longer than {{ gap | int }}s. A sighting
+  ending means the sensor went quiet, which usually but not always means the
+  vehicle left range.
+</p>
+<div class="panel scroll">
+  {% if s.sightings %}
+  <table>
+    <thead><tr>
+      <th>First heard</th><th>Last heard</th><th class="num">Duration</th>
+      <th class="num">Readings</th><th class="num">Peak RSSI</th><th>Band</th>
+    </tr></thead>
+    <tbody>
+      {% for x in s.sightings %}
+      <tr>
+        <td>{{ x.started_at | iso }}</td>
+        <td>{% if x.open %}<span class="pill live">still audible</span>{% else %}{{ x.ended_at | iso }}{% endif %}</td>
+        <td class="num">{{ x.duration | duration }}</td>
+        <td class="num">{{ x.reading_count }}</td>
+        <td class="num">{{ '%.1f' % x.max_rssi if x.max_rssi is not none else '—' }}</td>
+        <td class="band">{{ x.band or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">No sightings recorded.</div>
+  {% endif %}
+</div>
+
+{% if s.raw %}
+<details class="panel raw">
+  <summary>Last raw packet</summary>
+  <pre class="mono">{{ s.raw }}</pre>
+  <p class="sub" style="margin:8px 0 0">
+    Exactly as rtl_433 emitted it, at {{ s.latest_ts_iso }}. Every line is also
+    archived to <code>raw/</code>, so a normalization bug loses nothing.
+  </p>
+</details>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/chart.js"></script>
+<script>
+(function () {
+  const rows = JSON.parse(document.getElementById('chart-data').textContent);
+  // Separate axes: psi and °C occupy different ranges, and forcing them onto
+  // one axis flattened whichever had the smaller spread.
+  tpmsChart(document.getElementById('chart-psi'), [
+    { name: 'psi', points: rows.map(r => ({ ts: r.ts, value: r.pressure_psi })) },
+  ], { label: 'Tyre pressure over time', height: 190, caption: 'psi, oldest to newest reading.' });
+  tpmsChart(document.getElementById('chart-temp'), [
+    { name: '°C', color: window.TPMS_COLORS[2],
+      points: rows.filter(r => r.temperature_c != null)
+                  .map(r => ({ ts: r.ts, value: r.temperature_c })) },
+  ], { label: 'Temperature over time', height: 150,
+       empty: 'No temperature readings from this decoder.',
+       caption: '°C, same window.' });
+})();
+</script>
+{% endblock %}

@@ -155,7 +155,9 @@ def list_protocols(binary: str) -> dict[int, str]:
     }
 
 
-def discover_tpms_protocols(binary: str) -> list[int]:
+def discover_tpms_protocols(
+    binary: str, exclude: list[str] | None = None
+) -> list[int]:
     """TPMS protocol numbers supported by *this* rtl_433 build.
 
     Protocol numbers are not stable across rtl_433 versions, and passing one
@@ -163,6 +165,9 @@ def discover_tpms_protocols(binary: str) -> list[int]:
     which reads like a hardware fault. So the list is derived from the binary
     rather than hardcoded: decoders are selected by name, with the static
     fallback list intersected in to catch any whose name omits "TPMS".
+
+    ``exclude`` drops decoders whose name contains any of the given strings.
+    Some decoders match other makers' bursts and manufacture phantom sensors.
 
     Returns an empty list if the binary cannot be queried; the caller then
     decodes everything rather than risking a crash loop.
@@ -172,6 +177,25 @@ def discover_tpms_protocols(binary: str) -> list[int]:
         return []
     selected = {n for n, name in available.items() if "tpms" in name.lower()}
     selected |= set(FALLBACK_TPMS_PROTOCOLS) & set(available)
+
+    for pattern in exclude or []:
+        needle = pattern.strip().lower()
+        if not needle:
+            continue
+        dropped = {n for n in selected if needle in available[n].lower()}
+        if dropped:
+            log.info(
+                "excluding %s: %s",
+                pattern,
+                ", ".join(f"[{n}] {available[n]}" for n in sorted(dropped)),
+            )
+            selected -= dropped
+        else:
+            log.warning(
+                "exclude_protocols lists %r, but this rtl_433 has no matching "
+                "TPMS decoder -- check the spelling against 'rtl_433 -R help'",
+                pattern,
+            )
     return sorted(selected)
 
 
@@ -316,7 +340,9 @@ class RadioSupervisor:
 
     def _protocol_args(self) -> list[int]:
         if self._protocols is None:
-            self._protocols = discover_tpms_protocols(self.config.binary)
+            self._protocols = discover_tpms_protocols(
+                self.config.binary, self.config.exclude_protocols
+            )
             if self._protocols:
                 log.info(
                     "%s supports %d TPMS protocols", self.config.binary,

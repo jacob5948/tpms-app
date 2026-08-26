@@ -153,13 +153,26 @@ automatically, so your correction survives the next clustering run.
 
 ## Web UI
 
-- **Live** — SSE feed of incoming readings and what is audible right now.
+- **Live** — SSE feed of incoming readings and what is audible right now,
+  updated in place without reloading the page.
 - **Vehicles** — cards per vehicle with per-wheel pressure/temperature; detail
   pages with a pressure chart, appearance history, and rename/merge/split/pin.
 - **Sensors** — every transmitter heard, with manual assignment.
+- **Sensor detail** — one page per transmitter: every reading field, its bands,
+  its sightings, its duplicate decodes, the last raw packet, and **what it was
+  heard alongside**. Every mention of a sensor anywhere links here, so no table
+  has to carry every column.
 - **Events** — the appear / last-heard log, filterable, with CSV export.
 - **Status** — receiver health, tuned frequency, packet rate, decoder breakdown,
   and how many readings arrived on each band.
+
+### Reading the clustering evidence
+
+Each sensor page lists the sensors it was audible alongside, with the shared
+sighting count and the **support** — the share of the rarer sensor's sightings
+the two appeared in together. That is the exact number `clustering.min_support`
+is tested against, so a grouping that looks wrong can be traced to the figure
+that caused it rather than guessed at.
 
 ### Which band a sensor was heard on
 
@@ -185,10 +198,25 @@ likely to touch:
 | `radio.frequencies` | `[315M]` | Add `433.92M` for a second band (enables hopping). |
 | `radio.gain` | `null` (AGC) | A fixed gain often beats AGC for weak TPMS bursts. |
 | `radio.all_protocols` | `false` | `true` decodes everything, not just TPMS. Costs CPU. |
+| `radio.exclude_protocols` | `["Jansite"]` | Decoder names to leave out. See below. |
 | `sessions.gap_seconds` | `120` | Must exceed the sensor transmit interval. |
 | `clustering.min_support` | `0.6` | Raise it if unrelated vehicles are merging. |
 | `clustering.single_pass` | `true` | Group vehicles seen only once, marked provisional. |
 | `aliases.min_share_ratio` | `0.5` | Lower it if duplicate decodes are not being merged. |
+
+### Why Jansite is excluded by default
+
+The `Jansite` decoder matches bursts that belong to other makers, so a single
+passing car is decoded twice: once correctly, and once again as a Jansite
+sensor with a different ID. Each of those is a phantom transmitter that the
+duplicate detector then has to recognise and fold away. Excluding the decoder
+stops them being created at all.
+
+The trade-off: a shared decoder name is one of the signals single-pass grouping
+uses, and Jansite was supplying it for some vehicles. Expect slightly fewer
+provisional groups on first sighting, and cleaner sensor counts in exchange.
+Set `exclude_protocols: []` to decode it again. Sensors already recorded stay
+in the database; excluding the protocol only stops new ones appearing.
 
 Every raw `rtl_433` line is also archived to `raw/rtl433-YYYY-MM-DD.jsonl`, so a
 normalization bug can never lose data — re-import with `tpms replay`.

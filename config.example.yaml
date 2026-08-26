@@ -29,6 +29,13 @@ radio:
   # keeps weather stations / doorbells out of the log. Set true to decode all.
   all_protocols: false
 
+  # Decoders to leave out, matched as a case-insensitive substring of the name
+  # in `rtl_433 -R help`. Jansite is excluded by default because it also
+  # matches other makers' bursts, so every passing car gets re-decoded a second
+  # time under the Jansite name -- a phantom sensor that the duplicate detector
+  # then has to identify and fold away. Set to [] to decode it again.
+  exclude_protocols: ["Jansite"]
+
   # Extra raw arguments appended to the rtl_433 command line.
   extra_args: []
 

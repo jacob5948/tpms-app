@@ -129,7 +129,7 @@ def sensor_bands(db: Database, sensor_pk: int) -> list[dict[str, Any]]:
     different bands.
     """
     totals: dict[float, dict[str, Any]] = {}
-    for row in db.band_counts(sensor_pk):
+    for row in db.band_counts(sensor_pk, include_aliases=False):
         band = band_of(row["freq_mhz"])
         if band is None:
             continue
@@ -210,28 +210,50 @@ def alias_groups(db: Database) -> list[dict[str, Any]]:
     """Canonical sensors that have duplicate decodes, for the sensors page."""
     sensors = db.list_sensors()
     displays = {s.pk: s.display for s in sensors}
-    grouped: dict[int, list[str]] = {}
+    grouped: dict[int, list[dict[str, Any]]] = {}
     for sensor in sensors:
         if sensor.alias_of is not None:
-            grouped.setdefault(sensor.alias_of, []).append(sensor.display)
+            grouped.setdefault(sensor.alias_of, []).append(
+                {"pk": sensor.pk, "display": sensor.display}
+            )
     return [
-        {"canonical": displays.get(pk, "?"), "aliases": sorted(names)}
+        {
+            "canonical_pk": pk,
+            "canonical": displays.get(pk, "?"),
+            "aliases": sorted(n["display"] for n in names),
+            "alias_list": sorted(names, key=lambda n: n["display"]),
+        }
         for pk, names in sorted(grouped.items())
     ]
 
 
 def heard_now(db: Database) -> list[dict[str, Any]]:
-    """Sensors with a sighting still open, newest first."""
+    """Sensors with a sighting still open, newest first.
+
+    Duplicate decodes are folded away, as everywhere else: listing them would
+    show one transmitter as several audible sensors and disagree with the
+    counts on every other page. Both decoders open a sighting on the same
+    burst, so the canonical one is audible whenever its duplicate is.
+    """
     names = {v.pk: v.display for v in db.list_vehicles()}
     out = []
     for sighting in db.list_open_sightings():
         sensor = db.get_sensor(sighting.sensor_pk)
-        if sensor is None:
+        if sensor is None or sensor.alias_of is not None:
             continue
+        # Carry the same reading fields the rest of the UI shows, so "heard
+        # now" is not the one table where pressure and band are missing.
+        latest = db.latest_reading(sensor.pk)
+        pressure = latest["pressure_kpa"] if latest else None
         out.append(
             {
                 "sensor_pk": sensor.pk,
                 "display": sensor.display,
+                "wheel_label": sensor.wheel_label,
+                "pressure_kpa": pressure,
+                "pressure_psi": (pressure / 6.894757) if pressure is not None else None,
+                "temperature_c": latest["temperature_c"] if latest else None,
+                "battery_ok": latest["battery_ok"] if latest else None,
                 "vehicle_id": sensor.vehicle_id,
                 "vehicle_name": names.get(sensor.vehicle_id) if sensor.vehicle_id else None,
                 "started_at": sighting.started_at,
@@ -325,3 +347,102 @@ def pressure_history(db: Database, sensor_pk: int, limit: int = 500) -> list[dic
         }
         for r in reversed(rows)
     ]
+
+
+def heard_alongside(
+    db: Database, sensor_pk: int, min_support: float = 0.6, limit: int = 12
+) -> list[dict[str, Any]]:
+    """Other sensors audible at the same moments as this one.
+
+    This is the raw evidence clustering runs on, and until now it was invisible
+    -- a vehicle could be grouped or not grouped with no way to see why. Support
+    is the share of the rarer sensor's sightings the two were heard in together,
+    which is the term that separates "same car" from "passed together once".
+    """
+    counts = db.sighting_counts()
+    this = db.get_sensor(sensor_pk)
+    alias_of = this.alias_of if this else None
+    rows = db.query(
+        """
+        SELECT CASE WHEN c.a = ? THEN c.b ELSE c.a END AS other,
+               c.count, c.last_at
+          FROM cooccurrence c
+         WHERE c.a = ? OR c.b = ?
+        """,
+        (sensor_pk, sensor_pk, sensor_pk),
+    )
+    names = {v.pk: v.display for v in db.list_vehicles()}
+    out = []
+    for row in rows:
+        other = int(row["other"])
+        sensor = db.get_sensor(other)
+        if sensor is None:
+            continue
+        # A duplicate decode of some third sensor is not a transmitter in its
+        # own right; it would list the same vehicle twice under two protocol
+        # names. Duplicates of *this* sensor stay, labelled as such.
+        if sensor.alias_of is not None and sensor.alias_of != sensor_pk:
+            continue
+        denominator = min(counts.get(sensor_pk, 0), counts.get(other, 0))
+        support = (int(row["count"]) / denominator) if denominator else 0.0
+        out.append(
+            {
+                "pk": other,
+                "display": sensor.display,
+                # Perfect co-occurrence with a duplicate decode means nothing:
+                # it is the same burst, so it would always score 100%.
+                "duplicate": sensor.alias_of == sensor_pk
+                or sensor.pk == alias_of
+                or (alias_of is not None and sensor.alias_of == alias_of),
+                "vehicle_id": sensor.vehicle_id,
+                "vehicle_name": names.get(sensor.vehicle_id)
+                if sensor.vehicle_id
+                else None,
+                "count": int(row["count"]),
+                "support": support,
+                "strong": support >= min_support,
+                "last_at": float(row["last_at"]),
+                "last_at_iso": to_iso(float(row["last_at"])),
+            }
+        )
+    out.sort(key=lambda r: (r["support"], r["count"]), reverse=True)
+    return out[:limit]
+
+
+def sensor_detail(
+    db: Database, sensor_pk: int, min_support: float = 0.6
+) -> dict[str, Any] | None:
+    """Everything known about one sensor, for the page that owns it.
+
+    The same numbers appear in half a dozen tables elsewhere; this is the one
+    place they are all together, so every other mention of a sensor can just
+    link here instead of picking a different subset to show.
+    """
+    sensor = db.get_sensor(sensor_pk)
+    if sensor is None:
+        return None
+
+    row = sensor_row(db, sensor_pk)
+    names = {v.pk: v.display for v in db.list_vehicles()}
+    displays = {s.pk: s.display for s in db.list_sensors()}
+    latest = db.latest_reading(sensor_pk)
+
+    row.update(
+        {
+            "vehicle_name": names.get(sensor.vehicle_id) if sensor.vehicle_id else None,
+            "aliases": [
+                {"pk": s.pk, "display": s.display}
+                for s in db.list_sensors()
+                if s.alias_of == sensor_pk
+            ],
+            "alias_of_display": displays.get(sensor.alias_of),
+            "sightings": db.sightings_for_sensor(sensor_pk, limit=200),
+            "history": pressure_history(db, sensor_pk, limit=300),
+            "heard_with": heard_alongside(db, sensor_pk, min_support),
+            "raw": latest["raw"] if latest else None,
+            "snr": latest["snr"] if latest else None,
+            "latest_ts": float(latest["ts"]) if latest else None,
+            "latest_ts_iso": to_iso(float(latest["ts"])) if latest else None,
+        }
+    )
+    return row

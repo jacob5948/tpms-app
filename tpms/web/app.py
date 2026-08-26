@@ -135,6 +135,20 @@ def create_app(service: Service) -> FastAPI:
             vehicles=db.list_vehicles(),
         )
 
+    @app.get("/sensors/{sensor_pk}", response_class=HTMLResponse)
+    def sensor_detail(request: Request, sensor_pk: int):
+        detail = q.sensor_detail(db, sensor_pk, service.config.clustering.min_support)
+        if detail is None:
+            raise HTTPException(404, "sensor not found")
+        return page(
+            request,
+            "sensor.html",
+            nav="sensors",
+            s=detail,
+            gap=gap,
+            vehicles=db.list_vehicles(),
+        )
+
     @app.get("/events", response_class=HTMLResponse)
     def events(
         request: Request,
@@ -220,6 +234,13 @@ def create_app(service: Service) -> FastAPI:
             generate(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.get("/api/heard-now.html", response_class=HTMLResponse)
+    def api_heard_now_html(request: Request):
+        """The 'heard now' table alone, for the Live page to swap in place."""
+        return templates.TemplateResponse(
+            request, "_heard.html", {"heard": q.heard_now(db)}
         )
 
     @app.get("/api/heard-now")

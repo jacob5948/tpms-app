@@ -1,0 +1,30 @@
+{#
+  The "heard now" table, on its own so the Live page can refresh just this
+  fragment instead of reloading the whole page under the user.
+#}
+{% import "_macros.html" as m %}
+{% if heard %}
+<div class="scroll"><table>
+  <thead><tr>
+    <th>Sensor</th><th>Vehicle</th><th>Band</th>
+    <th class="num">psi</th><th class="num">&deg;C</th><th>Battery</th>
+    <th>First heard</th><th>Last heard</th><th class="num">Readings</th><th class="num">RSSI</th>
+  </tr></thead>
+  <tbody>
+    {% for h in heard %}
+    <tr>
+      <td>{{ m.sensor_link(h.sensor_pk, h.display, h.wheel_label, present=true) }}</td>
+      <td>{{ m.vehicle_cell(h.vehicle_id, h.vehicle_name) }}</td>
+      <td class="band">{{ h.band or '—' }}</td>
+      {{ m.reading_cells(h) }}
+      <td title="{{ h.started_at_iso }}">{{ h.started_at | ago }}</td>
+      <td data-ts="{{ h.last_reading_at }}">{{ h.last_reading_at | ago }}</td>
+      <td class="num">{{ h.reading_count }}</td>
+      <td class="num">{{ '%.1f' % h.max_rssi if h.max_rssi is not none else '—' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<div class="empty">Nothing audible right now.</div>
+{% endif %}

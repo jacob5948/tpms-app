@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}Live &middot; TPMS{% endblock %}
 {% block body %}
 <h1>Live</h1>
@@ -9,30 +10,19 @@
   car falls silent too.
 </p>
 
+<div class="stats">
+  {{ m.stat('Audible now', heard | length, 'sensors with an open sighting') }}
+  {{ m.stat('Vehicles present', heard | map(attribute='vehicle_id') | select | unique | list | length) }}
+  <div class="stat" id="rate-stat">
+    <div class="k">Readings/min</div>
+    <div class="v" id="rate">—</div>
+    <div class="h">last 5 minutes</div>
+  </div>
+</div>
+
 <h2>Heard now</h2>
 <div class="panel" id="heard-panel">
-  {% if heard %}
-  <div class="scroll"><table>
-    <thead><tr>
-      <th>Sensor</th><th>Vehicle</th><th>First heard</th><th>Last heard</th>
-      <th class="num">Readings</th><th class="num">RSSI</th>
-    </tr></thead>
-    <tbody>
-      {% for h in heard %}
-      <tr>
-        <td><span class="dot live"></span><span class="mono">{{ h.display }}</span></td>
-        <td>{% if h.vehicle_id %}<a href="/vehicles/{{ h.vehicle_id }}">{{ h.vehicle_name }}</a>{% else %}<span class="pill">unassigned</span>{% endif %}</td>
-        <td>{{ h.started_at | ago }}</td>
-        <td data-ts="{{ h.last_reading_at }}">{{ h.last_reading_at | ago }}</td>
-        <td class="num">{{ h.reading_count }}</td>
-        <td class="num">{{ '%.1f' % h.max_rssi if h.max_rssi is not none else '-' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table></div>
-  {% else %}
-  <div class="empty">Nothing audible right now.</div>
-  {% endif %}
+  {% include "_heard.html" %}
 </div>
 
 <h2>Incoming readings</h2>
@@ -40,7 +30,7 @@
   <table>
     <thead><tr>
       <th>Time</th><th>Sensor</th><th>Vehicle</th>
-      <th class="num">psi</th><th class="num">&deg;C</th><th class="num">RSSI</th><th class="num">MHz</th>
+      <th class="num">psi</th><th class="num">&deg;C</th><th class="num">RSSI</th><th>Band</th>
     </tr></thead>
     <tbody id="feed-body">
       <tr id="feed-placeholder"><td colspan="7" class="empty">Waiting for transmissions&hellip;</td></tr>
@@ -54,42 +44,68 @@
 const body = document.getElementById('feed-body');
 const MAX_ROWS = 200;
 
+function esc(text) {
+  return String(text).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 window.onTpmsEvent = function (ev) {
   if (ev.type !== 'reading') return;
   document.getElementById('feed-placeholder')?.remove();
 
+  const num = (v, d) => v == null ? '—' : v.toFixed(d);
+  const vehicle = ev.vehicle_id
+    ? '<a href="/vehicles/' + ev.vehicle_id + '">' +
+      esc(ev.vehicle_name || ('Unnamed vehicle #' + ev.vehicle_id)) + '</a>'
+    : '<a class="pill" href="/vehicles#unassigned">unassigned</a>';
+  const wheel = ev.wheel_label ? ' <span class="pill">' + esc(ev.wheel_label) + '</span>' : '';
+  const opened = ev.opened ? ' <span class="pill live">new sighting</span>' : '';
+  const dup = ev.duplicate
+    ? ' <span class="pill" title="Same burst as its canonical sensor, decoded by a second protocol">duplicate</span>'
+    : '';
+
   const tr = document.createElement('tr');
   tr.className = 'new';
-  const psi = ev.pressure_psi == null ? '-' : ev.pressure_psi.toFixed(1);
-  const c   = ev.temperature_c == null ? '-' : ev.temperature_c.toFixed(1);
-  const rssi = ev.rssi == null ? '-' : ev.rssi.toFixed(1);
-  const freq = ev.freq_mhz == null ? '-' : ev.freq_mhz.toFixed(2);
-  const vehicle = ev.vehicle_id
-    ? '<a href="/vehicles/' + ev.vehicle_id + '">vehicle ' + ev.vehicle_id + '</a>'
-    : '<span class="pill">unassigned</span>';
-  const label = ev.opened ? ' <span class="pill live">new sighting</span>' : '';
-
   tr.innerHTML =
-    '<td>' + new Date(ev.ts * 1000).toLocaleTimeString() + label + '</td>' +
-    '<td class="mono">' + ev.model + '/' + ev.sensor_id + '</td>' +
+    '<td>' + new Date(ev.ts * 1000).toLocaleTimeString() + opened + '</td>' +
+    '<td><a class="mono" href="/sensors/' + ev.sensor_pk + '">' +
+      esc(ev.model + '/' + ev.sensor_id) + '</a>' + wheel + dup + '</td>' +
     '<td>' + vehicle + '</td>' +
-    '<td class="num">' + psi + '</td><td class="num">' + c + '</td>' +
-    '<td class="num">' + rssi + '</td><td class="num">' + freq + '</td>';
+    '<td class="num">' + num(ev.pressure_psi, 1) + '</td>' +
+    '<td class="num">' + num(ev.temperature_c, 0) + '</td>' +
+    '<td class="num">' + num(ev.rssi, 1) + '</td>' +
+    '<td class="band">' + (ev.band ? esc(ev.band) : '—') + '</td>';
 
   body.prepend(tr);
   while (body.rows.length > MAX_ROWS) body.deleteRow(-1);
 
-  // A newly opened sighting changes the "heard now" set; refresh it.
-  if (ev.opened) refreshHeard();
+  refreshHeard();
 };
 
+// Refresh "heard now" in place. A full page reload used to fire here, which
+// threw away the feed the user was reading.
 let pending = null;
 function refreshHeard() {
   clearTimeout(pending);
-  pending = setTimeout(() => location.reload(), 2500);
+  pending = setTimeout(async () => {
+    try {
+      const html = await (await fetch('/api/heard-now.html')).text();
+      document.getElementById('heard-panel').innerHTML = html;
+    } catch (e) { /* the SSE pill already shows the connection state */ }
+  }, 1500);
 }
 
-// Keep the relative "last heard" column honest without a full reload.
+async function refreshRate() {
+  try {
+    const s = await (await fetch('/api/status')).json();
+    document.getElementById('rate').textContent = s.readings_per_min;
+  } catch (e) { /* leave the last known value */ }
+}
+refreshRate();
+setInterval(refreshRate, 30000);
+setInterval(refreshHeard, 60000);   // catch sightings closing with no new reading
+
+// Keep relative times honest without a reload.
 setInterval(() => {
   document.querySelectorAll('[data-ts]').forEach(el => {
     el.textContent = relTime(parseFloat(el.dataset.ts));

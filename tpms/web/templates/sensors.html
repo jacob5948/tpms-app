@@ -1,12 +1,55 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
 {% block title %}Sensors &middot; TPMS{% endblock %}
 {% block body %}
-<h1>Sensors</h1>
-<p class="sub">
-  Every distinct transmitter heard. Identity is model + ID together, because raw
-  IDs collide between protocols. Moving a sensor by hand pins it, so automatic
-  clustering will not move it back.
-</p>
+<div class="page-head">
+  <div>
+    <h1>Sensors</h1>
+    <p class="sub">
+      Every distinct transmitter heard. Identity is model + ID together,
+      because raw IDs collide between protocols. Open any sensor for its full
+      history, the sensors it was heard alongside, and its raw packets.
+    </p>
+  </div>
+  <form class="inline" method="post" action="/api/aliases">
+    <button type="submit">Re-scan for duplicates</button>
+  </form>
+</div>
+
+<div class="stats">
+  {{ m.stat('Transmitters', sensors | length, 'after folding duplicates') }}
+  {{ m.stat('Audible now', sensors | selectattr('present') | list | length) }}
+  {{ m.stat('Unassigned', sensors | rejectattr('vehicle_id') | list | length, 'not yet in a vehicle') }}
+  {{ m.stat('Duplicate groups', duplicates | length, 'one burst, several decoders') }}
+</div>
+
+<div class="panel scroll">
+  {% if sensors %}
+  <table>
+    <thead><tr>
+      <th>Sensor</th><th>Vehicle</th><th>Band</th>
+      <th class="num">psi</th><th class="num">&deg;C</th><th>Battery</th>
+      <th class="num">Readings</th><th>First heard</th><th>Last heard</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for s in sensors %}
+      <tr>
+        <td>{{ m.sensor_cell(s) }}</td>
+        <td>{{ m.vehicle_cell(s.vehicle_id, s.vehicle_name) }}</td>
+        {{ m.band_cell(s.bands) }}
+        {{ m.reading_cells(s) }}
+        <td class="num">{{ s.reading_count }}</td>
+        <td title="{{ s.first_seen_iso }}">{{ s.first_seen | ago }}</td>
+        <td title="{{ s.last_seen_iso }}">{{ s.last_seen | ago }}</td>
+        <td><a class="btn" href="/sensors/{{ s.pk }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">Nothing heard yet.</div>
+  {% endif %}
+</div>
 
 {% if duplicates %}
 <h2>Duplicate decodes ({{ duplicates | length }})</h2>
@@ -14,7 +57,7 @@
   Several rtl_433 decoders can match the same RF burst with different framing,
   so one transmitter shows up under several protocol names. These were
   identified by an identical signal level at the identical instant, and are
-  folded into one sensor below.
+  folded into the sensor they are listed under above.
 </p>
 <div class="panel scroll">
   <table>
@@ -22,66 +65,16 @@
     <tbody>
       {% for group in duplicates %}
       <tr>
-        <td class="mono">{{ group.canonical }}</td>
-        <td class="mono">{{ group.aliases | join(', ') }}</td>
+        <td>{{ m.sensor_link(group.canonical_pk, group.canonical) }}</td>
+        <td>
+          <span class="row">
+          {% for a in group.alias_list %}{{ m.sensor_link(a.pk, a.display) }}{% endfor %}
+          </span>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 {% endif %}
-
-<div class="row" style="margin:18px 0 10px">
-  <h2 style="margin:0">Sensors</h2>
-  <form class="inline right" method="post" action="/api/aliases">
-    <button type="submit">Re-scan for duplicates</button>
-  </form>
-</div>
-
-<div class="panel scroll">
-  {% if sensors %}
-  <table>
-    <thead><tr>
-      <th>Sensor</th><th>Vehicle</th><th>Band</th><th class="num">psi</th><th class="num">&deg;C</th>
-      <th>Battery</th><th class="num">Readings</th><th>First heard</th><th>Last heard</th><th>Assign</th>
-    </tr></thead>
-    <tbody>
-      {% for s in sensors %}
-      <tr>
-        <td class="mono">
-          {% if s.present %}<span class="dot live"></span>{% endif %}{{ s.display }}
-          {% if s.pinned %} <span class="pill">pinned</span>{% endif %}
-          {% if s.aliases %} <span class="pill" title="{{ s.aliases | join(', ') }}">+{{ s.aliases | length }} duplicate</span>{% endif %}
-        </td>
-        <td>
-          {% if s.vehicle_id %}<a href="/vehicles/{{ s.vehicle_id }}">{{ s.vehicle_name }}</a>
-          {% else %}<span class="pill">unassigned</span>{% endif %}
-        </td>
-        <td>{% if s.bands %}{{ s.bands[0].label }}{% if s.bands | length > 1 %} <span class="pill" title="{% for b in s.bands %}{{ b.label }}: {{ b.count }} reading(s){% if not loop.last %}, {% endif %}{% endfor %}">+{{ s.bands | length - 1 }}</span>{% endif %}{% else %}-{% endif %}</td>
-        <td class="num">{{ '%.1f' % s.pressure_psi if s.pressure_psi is not none else '-' }}</td>
-        <td class="num">{{ '%.1f' % s.temperature_c if s.temperature_c is not none else '-' }}</td>
-        <td>{% if s.battery_ok == 0 %}<span class="pill warn">low</span>{% elif s.battery_ok == 1 %}ok{% else %}-{% endif %}</td>
-        <td class="num">{{ s.reading_count }}</td>
-        <td>{{ s.first_seen | ago }}</td>
-        <td>{{ s.last_seen | ago }}</td>
-        <td>
-          <form class="inline" method="post" action="/api/sensors/{{ s.pk }}">
-            <select name="vehicle_id">
-              <option value="none">unassigned</option>
-              <option value="new">new vehicle</option>
-              {% for v in vehicles %}
-              <option value="{{ v.pk }}" {{ 'selected' if v.pk == s.vehicle_id }}>{{ v.display }}</option>
-              {% endfor %}
-            </select>
-            <button type="submit">Apply</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty">No sensors heard yet.</div>
-  {% endif %}
-</div>
 {% endblock %}

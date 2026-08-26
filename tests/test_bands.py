@@ -63,8 +63,12 @@ def test_a_reading_without_a_frequency_does_not_erase_a_known_band(ingestor, db)
     assert db.sightings_for_sensor(db.list_sensors()[0].pk)[0].band == "315 MHz"
 
 
-def test_duplicate_decodes_count_towards_their_canonical_sensor(ingestor, db):
-    """An alias is the same RF burst, so its readings belong to the same band."""
+def test_duplicate_decodes_do_not_inflate_the_band_count(ingestor, db):
+    """An alias is the same burst, so counting it would double every reading.
+
+    The count sits next to the sensor's reading count in the UI; if duplicates
+    were folded in, the two numbers on one row would disagree.
+    """
     ingestor.ingest(_reading("aaa", 1000, 315.01))
     ingestor.ingest(_reading("bbb", 1000, 315.01, model="Citroen"))
     canonical, alias = db.list_sensors()[0].pk, db.list_sensors()[1].pk
@@ -73,7 +77,8 @@ def test_duplicate_decodes_count_towards_their_canonical_sensor(ingestor, db):
     bands = q.sensor_bands(db, canonical)
     assert len(bands) == 1
     assert bands[0]["label"] == "315 MHz"
-    assert bands[0]["count"] == 2
+    assert bands[0]["count"] == 1
+    assert bands[0]["count"] == q.sensor_row(db, canonical)["reading_count"]
 
 
 def test_sensor_row_and_events_surface_the_band(ingestor, db):

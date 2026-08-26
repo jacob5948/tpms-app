@@ -129,3 +129,69 @@ form.inline { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wr
 .tl-bar { flex: 1; height: 9px; background: var(--panel-2); border-radius: 5px; position: relative; }
 .tl-fill { position: absolute; height: 100%; border-radius: 5px; background: var(--accent); min-width: 3px; }
 .tl-fill.open { background: var(--live); }
+
+/* -- shared identity + page furniture ---------------------------------- */
+
+.page-head {
+  display: flex; align-items: flex-start; gap: 16px;
+  flex-wrap: wrap; margin-bottom: 18px;
+}
+.page-head > div:first-child { flex: 1; min-width: 260px; }
+.page-head .sub { margin-bottom: 0; max-width: 68ch; }
+.page-head form { margin-left: auto; }
+
+.crumbs { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.crumbs span { margin: 0 2px; }
+.crumbs .here { color: var(--ink); font-weight: 550; }
+
+.ident { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ident a { font-weight: 500; }
+.muted { color: var(--muted); }
+td.band, .band { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+
+h1 .pill, h1 .dot { vertical-align: middle; font-size: 11.5px; }
+h1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.pill.ok { background: color-mix(in srgb, var(--live) 15%, transparent); color: var(--live); }
+a.pill:hover { text-decoration: none; border-color: var(--accent); color: var(--accent); }
+
+.stats { margin-bottom: 18px; }
+.stat .v { display: flex; align-items: center; gap: 6px; }
+.stat .h { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+
+/* Support bar behind the percentage in "heard alongside". */
+.bar {
+  display: inline-block; width: 46px; height: 6px; border-radius: 3px;
+  background: var(--panel-2); margin-right: 7px; vertical-align: 1px;
+  position: relative; overflow: hidden;
+}
+.bar::after {
+  content: ""; position: absolute; inset: 0 auto 0 0;
+  width: var(--pct, 0%); background: var(--accent); border-radius: 3px;
+}
+
+/* Wheel tiles link to the sensor they show. */
+a.wheel { display: block; color: inherit; }
+a.wheel:hover { text-decoration: none; outline: 1px solid var(--accent); }
+
+.legend { gap: 14px; margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+.legend .key { display: inline-flex; align-items: center; gap: 6px; }
+.legend .key i { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+.chart-caption { margin: 8px 0 0; }
+
+details.raw summary {
+  cursor: pointer; font-size: 14px; font-weight: 550; list-style-position: outside;
+}
+details.raw pre {
+  margin: 12px 0 0; padding: 12px; background: var(--panel-2);
+  border-radius: 8px; overflow-x: auto; font-size: 12px; line-height: 1.5;
+}
+
+.card h3 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.card .note { margin: 0 0 12px; font-size: 12.5px; padding: 8px 11px; }
+
+/* A mono h1 (a sensor id) must not inherit the 0.9em shrink. */
+h1.mono, h1 .mono { font-size: 20px; letter-spacing: -0.01em; }
+/* Long ISO stamps in stat tiles wrapped mid-string. */
+.stat .h { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar.muted-bar::after { background: var(--muted); }
