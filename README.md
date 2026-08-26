@@ -140,6 +140,24 @@ Set `web.host: 0.0.0.0` to reach the UI from elsewhere on the LAN.
 
 ## Troubleshooting
 
+**"rtl_433 exited; restarting in Ns".** The log now prints rtl_433's own
+stderr and, for known failures, the fix. The **Status** page shows the same
+thing under "Why the receiver stopped". The two usual causes:
+
+- `No supported devices found.` — the dongle is not plugged in, or not passed
+  through to the container/VM.
+- `usb_claim_interface error -6` / `Failed to open rtlsdr device` — something
+  else has the dongle. On a Pi this is almost always the DVB-T kernel driver:
+
+  ```bash
+  echo blacklist dvb_usb_rtl28xxu | sudo tee /etc/modprobe.d/blacklist-dvb.conf
+  sudo reboot
+  ```
+
+  If it is not the kernel driver, check for another `rtl_433`/SDR process
+  holding the device, and that the service user is in the `plugdev` group with
+  `systemd/99-rtl-sdr.rules` installed.
+
 **No packets at all.** Confirm the dongle and decoding by hand first:
 
 ```bash

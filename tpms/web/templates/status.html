@@ -28,7 +28,22 @@
     <div class="stat"><div class="k">Last packet</div><div class="v" style="font-size:15px">{{ status.radio.last_line_at | ago }}</div></div>
   </div>
 
-  {% if status.radio.last_error %}
+  {% if status.radio.hint %}
+  <div class="note" style="margin-top:14px">
+    <strong>Likely cause:</strong> {{ status.radio.hint }}
+  </div>
+  {% endif %}
+
+  {% if status.radio.stderr_tail %}
+  <h2>Why the receiver stopped</h2>
+  <p class="sub" style="margin:0 0 8px">
+    rtl_433's own output from its last run{% if status.radio.exit_code is not none %},
+    which exited with code {{ status.radio.exit_code }}{% endif %}.
+  </p>
+  <pre class="mono" style="background:var(--panel-2);padding:12px;border-radius:8px;overflow-x:auto;margin:0"
+  >{% for line in status.radio.stderr_tail %}{{ line }}
+{% endfor %}</pre>
+  {% elif status.radio.last_error %}
   <div class="note" style="margin-top:14px"><strong>Last receiver message:</strong> {{ status.radio.last_error }}</div>
   {% endif %}
 
