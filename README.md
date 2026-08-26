@@ -201,13 +201,21 @@ automatically, so your correction survives the next clustering run.
 - **Live** — SSE feed of incoming readings and what is audible right now,
   updated in place without reloading the page.
 - **Vehicles** — cards per vehicle with per-wheel pressure/temperature; detail
-  pages with a pressure chart, appearance history, and rename/merge/split/pin.
+  pages with **comings and goings**, a pressure chart, appearance history, and
+  rename/merge/split/pin.
 - **Sensors** — every transmitter heard, with manual assignment.
 - **Sensor detail** — one page per transmitter: every reading field, its bands,
   its sightings, its duplicate decodes, the last raw packet, and **what it was
   heard alongside**. Every mention of a sensor anywhere links here, so no table
   has to carry every column.
 - **Events** — the appear / last-heard log, filterable, with CSV export.
+
+A vehicle's page opens with **comings and goings**: a strip showing when it was
+audible — each block one appearance, from the first wheel heard to the last —
+above a count of appearances per bucket. Two shapes of the same fact, because
+neither works alone: a 90-second drive-by is sub-pixel across a month, and the
+bucket counts that stay readable at that zoom have lost the individual visits.
+The Appearances table below lists the same intervals exactly.
 
 The Live page opens with an **activity chart**: readings per bucket as bars,
 and below it, on its own plot sharing the same window, how many distinct

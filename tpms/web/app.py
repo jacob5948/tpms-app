@@ -293,6 +293,18 @@ def create_app(service: Service) -> FastAPI:
         start, end = _window(since, until)
         return {"points": q.pressure_history(db, sensor_pk, 400, start, end)}
 
+    @app.get("/api/vehicles/{vehicle_id}/presence")
+    def api_vehicle_presence(
+        vehicle_id: int,
+        since: str | None = None,
+        until: str | None = None,
+        buckets: int = 96,
+    ):
+        if db.get_vehicle(vehicle_id) is None:
+            raise HTTPException(404, "vehicle not found")
+        start, end = _window(since, until)
+        return q.vehicle_presence(db, vehicle_id, gap, start, end, buckets)
+
     @app.get("/api/vehicles/{vehicle_id}/history")
     def api_vehicle_history(
         vehicle_id: int, since: str | None = None, until: str | None = None

@@ -121,9 +121,20 @@
 </div>
 {% endif %}
 
+<h2>Comings and goings</h2>
+<p class="sub">
+  When this vehicle was audible, and how often it turned up. Both plots and the
+  pressure chart below share the range buttons and the cursor, so a window
+  chosen once applies to all three.
+</p>
+<div id="chart-range"></div>
+<div class="panel">
+  <div id="chart-presence"></div>
+  <div id="chart-appearances"></div>
+</div>
+
 <h2>Pressure history</h2>
 <div class="panel">
-  <div id="chart-range"></div>
   <div id="chart"></div>
   <script id="chart-data" type="application/json">{{ history | tojson }}</script>
   <script id="chart-names" type="application/json">{{ sensors | map(attribute='display') | list | tojson }}</script>
@@ -159,20 +170,78 @@
 <script>
 (function () {
   const pk    = {{ vehicle.pk }};
+  const sync  = 'vehicle-{{ vehicle.pk }}';
   const data  = JSON.parse(document.getElementById('chart-data').textContent);
   const names = JSON.parse(document.getElementById('chart-names').textContent);
   const pks   = JSON.parse(document.getElementById('chart-pks').textContent);
 
+  /* An appearance is a state that holds until it ends, so it is drawn as a
+   * step between "away" and "audible" rather than a line through the two. */
+  const presence = tpmsChart(document.getElementById('chart-presence'), [], {
+    label: 'When this vehicle was audible', height: 110, sync: sync,
+    zeroBased: true, noTable: true, ySplits: [0, 1],
+    formatValue: v => (v >= 0.5 ? 'audible' : 'away'),
+    empty: 'No appearances recorded yet.',
+    caption: 'Each block is one appearance, first wheel heard to last. ' +
+             'Listed exactly in Appearances below.',
+  });
+  /* The blocks above go sub-pixel across a month; a count per bucket stays
+   * readable at any zoom, and is the one that shows a pattern. */
+  const appearances = tpmsChart(document.getElementById('chart-appearances'), [], {
+    label: 'Appearances over time', height: 140, sync: sync,
+    zeroBased: true, decimals: 0, empty: 'No appearances recorded yet.',
+  });
   const chart = tpmsChart(document.getElementById('chart'), pks.map((sensorPk, i) => ({
     name: names[i],
     points: (data[sensorPk] || []).map(r => ({ ts: r.ts, value: r.pressure_psi })),
   })), {
-    label: 'Tyre pressure over time',
+    label: 'Tyre pressure over time', sync: sync,
     caption: 'psi per wheel, oldest to newest. Drag to zoom, double-click to reset.',
   });
+
   const bar = tpmsRangeBar(document.getElementById('chart-range'), {
-    charts: [chart], active: 'all', onRange: seconds => load(seconds),
+    charts: [presence, appearances, chart], active: 'all',
+    onRange: seconds => { load(seconds); loadPresence(seconds); },
   });
+
+  function blocks(intervals) {
+    // A flat 0 either side of each block, so the step has something to
+    // return to and an isolated appearance is a block rather than a plateau.
+    const points = [];
+    intervals.forEach(i => {
+      points.push({ ts: i.started_at - 0.5, value: 0 });
+      points.push({ ts: i.started_at, value: 1 });
+      points.push({ ts: i.until, value: 1 });
+      points.push({ ts: i.until + 0.5, value: 0 });
+    });
+    return points;
+  }
+
+  async function loadPresence(seconds) {
+    const since = seconds ? Math.round(seconds / 60) + 'm' : null;
+    [presence, appearances].forEach(c => c.setLoading(true));
+    try {
+      const url = '/api/vehicles/' + pk + '/presence' + (since ? '?since=' + since : '');
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(response.status);
+      const body = await response.json();
+      const range = seconds || 'all';
+      presence.setSeries([{ name: 'audible', kind: 'step',
+        points: blocks(body.intervals) }], range);
+      appearances.setSeries([{ name: 'appearances', kind: 'bar',
+        color: window.TPMS_COLORS[1],
+        points: body.buckets.map(b => ({ ts: b.ts, value: b.appearances })) }], range);
+      const bucket = body.width ? Math.max(1, Math.round(body.width / 60)) : 0;
+      appearances.setCaption(bucket
+        ? 'Appearances per ' + (bucket >= 120 ? Math.round(bucket / 60) + '-hour'
+                                             : bucket + '-minute') + ' bucket.'
+        : 'Nothing to bucket yet.');
+      bar.refresh();
+    } catch (e) {
+      [presence, appearances].forEach(c => c.setError(
+        'Could not load this vehicle\u2019s appearances.', () => loadPresence(seconds)));
+    }
+  }
 
   async function load(seconds) {
     const since = seconds ? Math.round(seconds / 60) + 'm' : null;
@@ -194,6 +263,7 @@
 
   // Inline data paints first; the full history replaces it once fetched.
   load(null);
+  loadPresence(null);
 })();
 </script>
 {% endblock %}

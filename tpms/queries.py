@@ -81,6 +81,111 @@ def vehicle_intervals(db: Database, vehicle_id: int, join_gap: float, limit: int
     return intervals[:limit]
 
 
+def vehicle_presence(
+    db: Database,
+    vehicle_id: int,
+    join_gap: float,
+    start: float | None = None,
+    end: float | None = None,
+    buckets: int = 96,
+    limit: int = 3000,
+) -> dict[str, Any]:
+    """When a vehicle was audible, and how often it turned up.
+
+    Two shapes of the same fact, because one chart cannot carry both: the
+    intervals are exact but a 90-second pass is sub-pixel across a month,
+    while the bucket counts stay legible at any zoom and lose the detail.
+    """
+    sql = """
+        SELECT s.started_at, s.ended_at, s.reading_count
+          FROM sightings s
+          JOIN sensors n ON n.pk = s.sensor_pk
+         WHERE n.vehicle_id = ?
+    """
+    params: list[Any] = [vehicle_id]
+    if start is not None:
+        # Overlapping, not contained: an appearance that began before the
+        # window and is still running is exactly what you want to see.
+        sql += " AND (s.ended_at IS NULL OR s.ended_at >= ?)"
+        params.append(start)
+    if end is not None:
+        sql += " AND s.started_at <= ?"
+        params.append(end)
+    sql += " ORDER BY s.started_at DESC LIMIT ?"
+    params.append(limit)
+
+    merged = merge_intervals(
+        [
+            (float(r["started_at"]), r["ended_at"], int(r["reading_count"]))
+            for r in db.query(sql, tuple(params))
+        ],
+        join_gap,
+    )
+    merged.reverse()   # oldest first, the order a chart plots in
+
+    now = now_ts()
+    intervals = [
+        {
+            "started_at": i.started_at,
+            "started_at_iso": to_iso(i.started_at),
+            "ended_at": i.ended_at,
+            "ended_at_iso": to_iso(i.ended_at) if i.ended_at else None,
+            # An open appearance is drawn up to now; it has not ended yet.
+            "until": i.ended_at if i.ended_at is not None else now,
+            "open": i.open,
+            "duration": i.duration,
+            "sensor_count": i.sensor_count,
+            "reading_count": i.reading_count,
+        }
+        for i in merged
+    ]
+
+    lo = start if start is not None else (intervals[0]["started_at"] if intervals else None)
+    hi = end if end is not None else (max(i["until"] for i in intervals) if intervals else None)
+    if lo is None or hi is None or hi <= lo:
+        return {"intervals": intervals, "buckets": [], "width": 0, "start": lo, "end": hi}
+
+    buckets = max(2, min(int(buckets), 500))
+    width = (hi - lo) / buckets
+    counts = [0] * buckets
+    audible = [0.0] * buckets
+    for interval in intervals:
+        index = int((interval["started_at"] - lo) / width)
+        if 0 <= index < buckets:
+            counts[index] += 1
+        # Airtime is spread across the buckets it actually covers, so a long
+        # stay does not land entirely in the bucket it began in. Walk bucket
+        # indices rather than timestamps: with unix seconds and a narrow
+        # bucket, advancing a cursor by floating-point arithmetic can fail to
+        # move at all, and the loop never ends.
+        cursor = max(interval["started_at"], lo)
+        finish = min(interval["until"], hi)
+        if finish <= cursor:
+            continue
+        first = max(0, min(int((cursor - lo) / width), buckets - 1))
+        last = max(0, min(int((finish - lo) / width), buckets - 1))
+        for index in range(first, last + 1):
+            edge = lo + index * width
+            overlap = min(finish, edge + width) - max(cursor, edge)
+            if overlap > 0:
+                audible[index] += overlap
+
+    return {
+        "intervals": intervals,
+        "buckets": [
+            {
+                "ts": lo + (i + 0.5) * width,
+                "appearances": counts[i],
+                "audible_seconds": round(audible[i], 1),
+            }
+            for i in range(buckets)
+        ],
+        "width": width,
+        "start": lo,
+        "end": hi,
+    }
+
+
 def vehicle_summaries(db: Database, join_gap: float) -> list[dict[str, Any]]:
     rows = db.query(
         """

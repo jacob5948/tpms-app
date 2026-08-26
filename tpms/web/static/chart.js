@@ -149,8 +149,11 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
       '<div class="chart-zoom row" hidden><span class="chart-window muted"></span>' +
       '<button type="button" class="chip">Reset zoom</button></div>' +
       (opts.caption ? '<p class="sub chart-caption"></p>' : '') +
-      '<details class="chart-table"><summary>Show as table</summary>' +
-      '<div class="chart-table-body"></div></details>';
+      // noTable is for a chart whose numbers are already tabulated elsewhere
+      // on the page; a second copy is noise, not accessibility.
+      (opts.noTable ? '' :
+        '<details class="chart-table"><summary>Show as table</summary>' +
+        '<div class="chart-table-body"></div></details>');
     const host = el.querySelector('.chart-plot');
     const zoomBar = el.querySelector('.chart-zoom');
     const table = el.querySelector('.chart-table');
@@ -168,6 +171,7 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
 
     let tableDrawn = false;
     function drawTable() {
+      if (!table) return;
       const shown = usable();
       if (!shown.length) {
         tableBody.innerHTML = '<div class="empty">Nothing plotted yet.</div>';
@@ -192,7 +196,7 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
       tableBody.innerHTML = html;
       tableDrawn = true;
     }
-    table.addEventListener('toggle', () => { if (table.open) drawTable(); });
+    table?.addEventListener('toggle', () => { if (table.open) drawTable(); });
 
     // -- states -----------------------------------------------------------
 
@@ -243,7 +247,7 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
            Math.max(...shown.flatMap(s => s.points.map(p => p.ts)))]
         : null;
 
-      if (tableDrawn || table.open) drawTable();
+      if (table && (tableDrawn || table.open)) drawTable();
 
       if (!shown.length) {
         // Narrowed to nothing reads differently from never had anything.
@@ -259,7 +263,11 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
       const grid = { stroke: ink(el, 0.12), width: 1 };
       const axisFont = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
       const axisStroke = ink(el, 0.55);
-      const format = v => (v == null ? '—' : v.toFixed(decimals));
+      // formatValue lets a caller label a state rather than a quantity --
+      // "audible" reads better on both the axis and the legend than "1".
+      const format = opts.formatValue
+        ? (v => (v == null ? '—' : opts.formatValue(v)))
+        : (v => (v == null ? '—' : v.toFixed(decimals)));
 
       const config = {
         width: host.clientWidth || 900,
@@ -271,8 +279,15 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
         },
         axes: [
           { stroke: axisStroke, grid: grid, ticks: grid, font: axisFont },
-          { scale: 'y', stroke: axisStroke, grid: grid, ticks: grid, font: axisFont,
-            values: (u, ticks) => ticks.map(format) },
+          {
+            scale: 'y', stroke: axisStroke, grid: grid, ticks: grid, font: axisFont,
+            values: (u, ticks) => ticks.map(format),
+            // Word labels ("audible") need more gutter than "38.6", and a
+            // state axis wants its two states rather than five gridlines
+            // carrying three copies of the same word.
+            size: opts.ySplits ? 72 : 50,
+            splits: opts.ySplits ? () => opts.ySplits : undefined,
+          },
         ],
         series: [{ label: 'time' }].concat(shown.map((s, i) => {
           const colour = colourOf(s, data.indexOf(s) < 0 ? i : data.indexOf(s));
@@ -284,7 +299,13 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
             value: (u, v) => format(v),
             points: { show: false },
           };
-          if (s.kind === 'bar') {
+          if (s.kind === 'step') {
+            // Presence is a state, not a measurement: it holds its value
+            // until it changes, and a sloped line between 0 and 1 would
+            // imply a vehicle half-arriving.
+            line.paths = uPlot.paths.stepped({ align: 1 });
+            line.fill = colour + '40';
+          } else if (s.kind === 'bar') {
             line.paths = uPlot.paths.bars({ size: [0.85, 40] });
             line.fill = colour + 'a6';
             line.stroke = colour + 'a6';
