@@ -145,6 +145,17 @@ class Service:
         recent = self.db.query_one(
             "SELECT COUNT(*) AS n FROM readings WHERE ts >= ?", (now_ts() - 300,)
         )
+        # rtl_433 reports RSSI in dB below full scale, so readings crowding
+        # zero mean the front end is saturating and the AGC is not coping.
+        levels = self.db.query_one(
+            "SELECT COUNT(*) AS n, "
+            "SUM(CASE WHEN rssi > -1.0 THEN 1 ELSE 0 END) AS hot "
+            "FROM readings WHERE rssi IS NOT NULL"
+        )
+        total = int(levels["n"] or 0) if levels else 0
+        hot = int(levels["hot"] or 0) if levels else 0
+        saturation = (hot / total) if total else 0.0
+
         # Which bands packets are actually arriving on -- the answer that
         # matters when hopping, since a configured band is not a heard one.
         bands: dict[str, int] = {}
@@ -175,6 +186,14 @@ class Service:
             "readings_per_min": round((recent["n"] if recent else 0) / 5.0, 2),
             "ingest": dict(self.ingestor.stats),
             "bands": dict(sorted(bands.items(), key=lambda kv: -kv[1])),
+            "signal": {
+                "readings": total,
+                "near_full_scale": hot,
+                "saturation": round(saturation, 4),
+                # Below this it is a handful of very close cars, not a problem.
+                "saturated": total >= 50 and saturation > 0.05,
+                "gain": self.config.radio.gain,
+            },
             "decoders": dict(
                 sorted(
                     self.ingestor.decoder_counts.items(),

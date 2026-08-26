@@ -146,10 +146,26 @@ def sensor_bands(db: Database, sensor_pk: int) -> list[dict[str, Any]]:
     return out
 
 
-def sensor_row(db: Database, sensor_pk: int) -> dict[str, Any]:
+def resident_pks(db: Database, config: Any = None) -> set[int]:
+    """Sensors parked in range, cached per call site.
+
+    Wraps ``Clusterer.residents`` so the UI and the clusterer cannot drift
+    apart on what "resident" means.
+    """
+    from .cluster import Clusterer
+    from .config import ClusterConfig
+
+    return Clusterer(db, config or ClusterConfig()).residents()
+
+
+def sensor_row(
+    db: Database, sensor_pk: int, residents: set[int] | None = None
+) -> dict[str, Any]:
     sensor = db.get_sensor(sensor_pk)
     if sensor is None:
         return {}
+    resident = sensor_pk in residents if residents is not None else False
+    duty = db.duty_cycles().get(sensor_pk, (0.0, 0.0))[0]
     latest = db.latest_reading(sensor_pk)
     open_sighting = db.open_sighting_for(sensor_pk)
     pressure = latest["pressure_kpa"] if latest else None
@@ -176,6 +192,8 @@ def sensor_row(db: Database, sensor_pk: int) -> dict[str, Any]:
         "freq_mhz": latest["freq_mhz"] if latest else None,
         "band": band_label(latest["freq_mhz"]) if latest else None,
         "bands": bands,
+        "duty_cycle": duty,
+        "resident": resident,
         "present": open_sighting is not None,
     }
 
@@ -190,6 +208,7 @@ def sensor_rows(db: Database, include_aliases: bool = False) -> list[dict[str, A
     names = {v.pk: v.display for v in db.list_vehicles()}
     sensors = db.list_sensors()
     displays = {s.pk: s.display for s in sensors}
+    residents = resident_pks(db)
 
     aliases: dict[int, list[str]] = {}
     for sensor in sensors:
@@ -200,7 +219,7 @@ def sensor_rows(db: Database, include_aliases: bool = False) -> list[dict[str, A
     for sensor in sensors:
         if sensor.alias_of is not None and not include_aliases:
             continue
-        row = sensor_row(db, sensor.pk)
+        row = sensor_row(db, sensor.pk, residents)
         row["vehicle_name"] = names.get(sensor.vehicle_id) if sensor.vehicle_id else None
         row["aliases"] = sorted(aliases.get(sensor.pk, []))
         row["alias_of_display"] = displays.get(sensor.alias_of)
@@ -387,7 +406,7 @@ def heard_alongside(
         if sensor.alias_of is not None and sensor.alias_of != sensor_pk:
             continue
         denominator = min(counts.get(sensor_pk, 0), counts.get(other, 0))
-        support = (int(row["count"]) / denominator) if denominator else 0.0
+        support = min(int(row["count"]) / denominator, 1.0) if denominator else 0.0
         out.append(
             {
                 "pk": other,
@@ -425,7 +444,7 @@ def sensor_detail(
     if sensor is None:
         return None
 
-    row = sensor_row(db, sensor_pk)
+    row = sensor_row(db, sensor_pk, resident_pks(db))
     names = {v.pk: v.display for v in db.list_vehicles()}
     displays = {s.pk: s.display for s in db.list_sensors()}
     latest = db.latest_reading(sensor_pk)

@@ -110,7 +110,7 @@ def cmd_recluster(args: argparse.Namespace) -> int:
     print(("[dry run] " if args.dry_run else "") + report.summary())
     for members in report.components:
         names = [db.get_sensor(pk).display for pk in members]
-        if len(members) > config.clustering.max_cluster_size:
+        if len(members) >= config.clustering.max_cluster_size:
             flag = "  << oversized, review"
         elif members in report.mixed_families:
             flag = "  << mixed id blocks, review"
@@ -185,6 +185,24 @@ def cmd_diagnose(args: argparse.Namespace) -> int:
         print("  -> these can never reach min_cooccurrences. Set "
               "clustering.single_pass: true to group them from one pass.")
 
+    levels = db.query_one(
+        "SELECT COUNT(*) AS n, SUM(CASE WHEN rssi > -1.0 THEN 1 ELSE 0 END) AS hot "
+        "FROM readings WHERE rssi IS NOT NULL"
+    )
+    total, hot = int(levels["n"] or 0), int(levels["hot"] or 0)
+    if total >= 50 and hot / total > 0.05:
+        print(f"\nsignal:            {hot} of {total} readings within 1 dB of full "
+              f"scale ({hot / total:.0%})")
+        print("  -> the receiver is probably saturating; weaker sensors are being")
+        print("     lost under it. Set a fixed radio.gain instead of AGC.")
+
+    residents = Clusterer(db, cfg).residents()
+    if residents:
+        names = ", ".join(sensors[pk].display for pk in sorted(residents))
+        print(f"\nresident sensors:  {len(residents)} ({names})")
+        print("  -> audible most of the time, so parked in range rather than passing.")
+        print("     They co-occur with all traffic and cannot seed a one-pass group.")
+
     rows = db.cooccurrence_rows()
     if not rows:
         print("\nNo sensor has ever been heard alongside another.")
@@ -202,7 +220,7 @@ def cmd_diagnose(args: argparse.Namespace) -> int:
             duplicates += 1
             continue
         denominator = min(counts.get(a, 0), counts.get(b, 0))
-        support = count / denominator if denominator else 0.0
+        support = min(count / denominator, 1.0) if denominator else 0.0
         scored.append((count, support, a, b))
     scored.sort(reverse=True)
 

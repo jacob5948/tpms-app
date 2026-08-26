@@ -100,6 +100,7 @@ class Clusterer:
         counts = self.db.sighting_counts()
         profiles = self._profiles() if self.config.single_pass else {}
         self._ids = self._parsed_ids() if self.config.single_pass else {}
+        residents = self.residents() if self.config.single_pass else set()
         edges: list[Edge] = []
 
         for row in self.db.cooccurrence_rows():
@@ -109,16 +110,41 @@ class Clusterer:
 
             # Support, not raw count: two cars that commuted together three
             # times still fail this if each has been seen fifty times alone.
+            # Capped at 1: one long sighting can overlap many short ones, so
+            # the count can exceed the rarer sensor's sighting total, and a
+            # "share" above 100% is meaningless either way.
             denominator = min(counts.get(a, 0), counts.get(b, 0))
-            support = count / denominator if denominator else 0.0
+            support = min(count / denominator, 1.0) if denominator else 0.0
 
             if count >= self.config.min_cooccurrences and support >= self.config.min_support:
                 edges.append(Edge(a=a, b=b, count=count, support=support))
-            elif self.config.single_pass and self._same_vehicle_shape(a, b, profiles):
+            elif (
+                self.config.single_pass
+                # A sensor parked in range is audible while every passing car
+                # goes by, so a single shared window says nothing about them
+                # belonging together. Repeat co-occurrence still counts, which
+                # is why this only guards the single-pass branch.
+                and a not in residents
+                and b not in residents
+                and self._same_vehicle_shape(a, b, profiles)
+            ):
                 edges.append(
                     Edge(a=a, b=b, count=count, support=support, confirmed=False)
                 )
         return edges
+
+    def residents(self) -> set[int]:
+        """Sensors that live in range rather than driving past.
+
+        Two of these on a real capture had been continuously audible for over
+        ten hours while everything else was heard for a minute or two.
+        """
+        cfg = self.config
+        return {
+            pk
+            for pk, (duty, span) in self.db.duty_cycles().items()
+            if span >= cfg.resident_min_span_seconds and duty >= cfg.resident_duty_cycle
+        }
 
     def _parsed_ids(self) -> dict[int, tuple[str, int]]:
         """Sensor ids as numbers, for the adjacency test."""
@@ -253,7 +279,7 @@ class Clusterer:
 
         if dry_run:
             report.oversized = [
-                c for c in report.components if len(c) > self.config.max_cluster_size
+                c for c in report.components if len(c) >= self.config.max_cluster_size
             ]
             return report
 
@@ -270,7 +296,10 @@ class Clusterer:
         clustered: set[int] = set()
         for members in report.components:
             clustered.update(members)
-            oversized = len(members) > self.config.max_cluster_size
+            # At the limit, not past it: a six-sensor cluster with
+            # max_cluster_size 6 slipped through unflagged, and six is already
+            # more than a four-wheeled car carries.
+            oversized = len(members) >= self.config.max_cluster_size
             if oversized:
                 report.oversized.append(members)
             mixed = self._spans_several_id_families(members)

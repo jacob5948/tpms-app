@@ -173,6 +173,20 @@ false-positive rate against same-decoder pairs never heard together — and
 declines to give a verdict at all until the sample is big enough to mean
 something. Set `clustering.id_adjacency: false` if it does not hold up for you.
 
+### Resident sensors
+
+A sensor parked within range behaves nothing like passing traffic: on a real
+capture two had been continuously audible for over ten hours while everything
+else was heard for a minute or two. Because a resident is audible while *every*
+car drives past, a single shared moment says nothing about them belonging
+together — so residents are marked with a `resident` badge and are not allowed
+to seed a one-pass grouping. Repeated co-occurrence still counts, since that is
+real evidence. Naming one pins it out of the clusterer's way entirely.
+
+Detection is a duty cycle: the share of its observed window the sensor was
+audible, over at least `clustering.resident_min_span_seconds`. Passing traffic
+scores near zero, a resident near one.
+
 Clustering never touches a sensor that is **pinned**, or that belongs to a
 vehicle a human **named** or created. Moving a sensor by hand pins it
 automatically, so your correction survives the next clustering run.
@@ -233,6 +247,8 @@ likely to touch:
 | `sessions.gap_seconds` | `120` | Must exceed the sensor transmit interval. |
 | `clustering.min_support` | `0.6` | Raise it if unrelated vehicles are merging. |
 | `clustering.single_pass` | `true` | Group vehicles seen only once, marked provisional. |
+| `clustering.id_adjacency` | `true` | Use near-consecutive sensor IDs as a second signal. |
+| `clustering.resident_duty_cycle` | `0.5` | Above this, a sensor is parked in range, not passing. |
 | `aliases.min_share_ratio` | `0.5` | Lower it if duplicate decodes are not being merged. |
 
 ### Removing sensors a decoder already created

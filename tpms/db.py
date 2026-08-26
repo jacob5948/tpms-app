@@ -523,6 +523,32 @@ class Database:
             counts["sensors"] = cur.rowcount
         return counts
 
+    def duty_cycles(self) -> dict[int, tuple[float, float]]:
+        """Per sensor: (share of its observed window it was audible, that window).
+
+        A car driving past is audible for a minute or two out of however long
+        it has been on record, so it scores near zero. A sensor parked in range
+        scores near one. That difference is what separates passing traffic from
+        the transmitters that live here.
+        """
+        rows = self.query(
+            """
+            SELECT s.pk,
+                   s.last_seen - s.first_seen AS span,
+                   (SELECT COALESCE(SUM(g.last_reading_at - g.started_at), 0)
+                      FROM sightings g WHERE g.sensor_pk = s.pk) AS audible
+              FROM sensors s
+            """
+        )
+        out: dict[int, tuple[float, float]] = {}
+        for row in rows:
+            span = float(row["span"] or 0.0)
+            audible = float(row["audible"] or 0.0)
+            # A sensor heard once has no window to divide by; it is not
+            # resident, it is simply new.
+            out[int(row["pk"])] = ((audible / span) if span > 0 else 0.0, span)
+        return out
+
     def sighting_counts(self) -> dict[int, int]:
         rows = self.query(
             "SELECT sensor_pk, COUNT(*) AS n FROM sightings GROUP BY sensor_pk"

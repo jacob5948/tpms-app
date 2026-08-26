@@ -68,6 +68,23 @@
   </p>
 </div>
 
+{% if status.signal.saturated %}
+<div class="note">
+  <strong>The receiver may be saturating.</strong>
+  {{ status.signal.near_full_scale }} of {{ status.signal.readings }} readings
+  ({{ '%.0f%%' % (status.signal.saturation * 100) }}) arrived within 1 dB of
+  full scale. rtl_433 reports signal level as dB below full scale, so readings
+  crowding zero mean the front end is being overdriven and weaker, more distant
+  sensors are being lost underneath it.
+  {% if status.signal.gain is none %}
+  The radio is on automatic gain; a fixed <code>radio.gain</code> (try 30&ndash;40)
+  usually beats AGC for short TPMS bursts.
+  {% else %}
+  Try lowering <code>radio.gain</code> from its current {{ status.signal.gain }}.
+  {% endif %}
+</div>
+{% endif %}
+
 <h2>Bands heard on</h2>
 <p class="sub">
   Every reading ever stored, by band. Tuning to a band is not the same as

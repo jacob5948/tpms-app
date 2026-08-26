@@ -89,8 +89,9 @@ clustering:
   # happened to pass together a few times.
   min_support: 0.6
 
-  # Components larger than this are flagged for manual review rather than
-  # auto-committed -- an oversized component is almost always a bad merge.
+  # Components that REACH this size are flagged for manual review rather than
+  # auto-committed -- a component this big is almost always a bad merge. The
+  # limit is inclusive: six sensors is already more than a car carries.
   max_cluster_size: 6
 
   # Wheel sets appear to be programmed with near-consecutive IDs, so two

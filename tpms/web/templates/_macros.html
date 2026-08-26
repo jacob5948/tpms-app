@@ -6,18 +6,20 @@
   look the same and link to the same place.
 #}
 
-{% macro sensor_link(pk, display, wheel=None, pinned=False, present=False, aliases=0) %}
+{% macro sensor_link(pk, display, wheel=None, pinned=False, present=False, aliases=0, resident=False) %}
 <span class="ident">
   {%- if present %}<span class="dot live" title="heard now"></span>{% endif -%}
   <a class="mono" href="/sensors/{{ pk }}">{{ display }}</a>
   {%- if wheel %} <span class="pill">{{ wheel }}</span>{% endif -%}
   {%- if pinned %} <span class="pill" title="Manually placed; clustering will not move it">pinned</span>{% endif -%}
   {%- if aliases %} <span class="pill" title="{{ aliases }} duplicate decode(s) folded in">+{{ aliases }}</span>{% endif -%}
+  {%- if resident %} <span class="pill warn" title="Audible most of the time, so it is parked in range rather than driving past. It cannot seed a single-pass grouping.">resident</span>{% endif -%}
 </span>
 {% endmacro %}
 
 {% macro sensor_cell(s) %}
-{{ sensor_link(s.pk, s.display, s.wheel_label, s.pinned, s.present, s.aliases | length if s.aliases else 0) }}
+{{ sensor_link(s.pk, s.display, s.wheel_label, s.pinned, s.present,
+               s.aliases | length if s.aliases else 0, s.resident) }}
 {% endmacro %}
 
 {% macro vehicle_cell(vehicle_id, vehicle_name) %}

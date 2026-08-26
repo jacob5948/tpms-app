@@ -44,7 +44,8 @@
       {% for s in sensors %}
       <tr data-unassigned="{{ 0 if s.vehicle_id else 1 }}"
           data-present="{{ 1 if s.present else 0 }}"
-          data-duplicates="{{ 1 if s.aliases else 0 }}">
+          data-duplicates="{{ 1 if s.aliases else 0 }}"
+          data-resident="{{ 1 if s.resident else 0 }}">
         <td>{{ m.sensor_cell(s) }}</td>
         <td>{{ m.vehicle_cell(s.vehicle_id, s.vehicle_name) }}</td>
         {{ m.band_cell(s.bands) }}

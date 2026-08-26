@@ -68,6 +68,11 @@ DEFAULTS: dict[str, Any] = {
         # it; the widest genuine pair seen so far was 10042 apart.
         "id_adjacency": True,
         "id_max_distance": 65536,
+        # A sensor audible this share of the time, over at least this long, is
+        # parked in range rather than driving past. It co-occurs with all
+        # passing traffic, so it is not allowed to seed a single-pass grouping.
+        "resident_duty_cycle": 0.5,
+        "resident_min_span_seconds": 3600,
         "single_pass_rssi_spread": 10.0,
         "auto_interval_seconds": 300,
     },
@@ -148,6 +153,10 @@ class ClusterConfig:
     #: been heard together.
     id_adjacency: bool = True
     id_max_distance: int = 65536
+    #: Share of its observed window a sensor must be audible to count as
+    #: resident, and the shortest window over which that means anything.
+    resident_duty_cycle: float = 0.5
+    resident_min_span_seconds: float = 3600
     #: Widest spread of mean RSSI, in dB, tolerated within one such group.
     single_pass_rssi_spread: float = 10.0
     auto_interval_seconds: float = 300

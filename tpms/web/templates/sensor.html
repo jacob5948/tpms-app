@@ -15,6 +15,7 @@
       {% if s.present %}<span class="dot live"></span>{% endif %}{{ s.display }}
       {% if s.wheel_label %}<span class="pill">{{ s.wheel_label }}</span>{% endif %}
       {% if s.pinned %}<span class="pill">pinned</span>{% endif %}
+      {% if s.resident %}<span class="pill warn">resident</span>{% endif %}
     </h1>
     <p class="sub">
       {% if s.alias_of %}
@@ -65,6 +66,17 @@
     Assigning by hand pins the sensor, so clustering will not move it back.
   </p>
 </div>
+
+{% if s.resident %}
+<div class="note">
+  <strong>Resident transmitter.</strong> Audible {{ '%.0f%%' % (s.duty_cycle * 100) }}
+  of the time it has been on record, so it is parked within range rather than
+  driving past. It is therefore audible while every passing car goes by, and a
+  single shared moment says nothing about them belonging together &mdash; so it
+  is not allowed to seed a one-pass grouping. Repeated co-occurrence still
+  counts, and naming it pins it out of the clusterer's way entirely.
+</div>
+{% endif %}
 
 {% if s.bands | length > 1 %}
 <div class="note">
