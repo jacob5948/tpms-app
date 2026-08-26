@@ -20,6 +20,11 @@
   </div>
 </div>
 
+<h2>Activity</h2>
+<div class="panel">
+  <div id="activity"></div>
+</div>
+
 <h2>Heard now</h2>
 <div class="panel" id="heard-panel">
   {% include "_heard.html" %}
@@ -40,7 +45,48 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/chart.js"></script>
 <script>
+/* Overall activity. Bars are readings, which is how much RF got through; the
+ * line is how many distinct transmitters were audible in the same bucket, so a
+ * tall bar from one chatty resident sensor cannot be mistaken for traffic. */
+let activity = null;
+let activityRange = 86400;
+
+async function loadActivity(seconds) {
+  const since = seconds ? Math.round(seconds / 3600) + 'h' : null;
+  const url = '/api/activity?buckets=96' + (since ? '&since=' + since : '');
+  let data;
+  try {
+    data = await (await fetch(url)).json();
+  } catch (e) { return; }
+  const series = [
+    { name: 'readings', kind: 'bar',
+      points: data.points.map(p => ({ ts: p.ts, value: p.readings })) },
+    { name: 'transmitters heard', axis: 'right', color: window.TPMS_COLORS[1],
+      points: data.points.map(p => ({ ts: p.ts, value: p.sensors })) },
+  ];
+  const bucket = data.width ? Math.max(1, Math.round(data.width / 60)) : 0;
+  const caption = bucket
+    ? 'Readings per ' + bucket + '-minute bucket, and distinct transmitters in each.'
+    : 'Nothing captured yet.';
+  if (activity) {
+    activity.setSeries(series, seconds || 'all');
+    activity.setCaption(caption);
+  } else {
+    activity = tpmsChart(document.getElementById('activity'), series, {
+      label: 'Receiver activity over time', height: 190, zeroBased: true,
+      decimals: 0, activeRange: seconds || 'all', caption: caption,
+      empty: 'No readings captured yet.',
+      onRange: s => { activityRange = s; loadActivity(s); },
+    });
+  }
+}
+loadActivity(activityRange);
+// Polling would throw away a window the user had zoomed into, so hold off
+// while one is open.
+setInterval(() => { if (!activity || !activity.zoomed()) loadActivity(activityRange); }, 60000);
+
 const body = document.getElementById('feed-body');
 const MAX_ROWS = 200;
 

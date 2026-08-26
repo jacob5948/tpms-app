@@ -266,6 +266,49 @@ def create_app(service: Service) -> FastAPI:
     def api_status():
         return service.status()
 
+    # -- chart data -------------------------------------------------------
+    #
+    # The charts fetch their own data so the range buttons can widen the
+    # window without reloading the page around them.
+
+    def _window(since: str | None, until: str | None) -> tuple[float | None, float | None]:
+        from ..cli import _parse_when
+
+        return _parse_when(since), _parse_when(until)
+
+    @app.get("/api/activity")
+    def api_activity(since: str | None = None, until: str | None = None, buckets: int = 96):
+        start, end = _window(since, until)
+        return q.activity(db, start, end, buckets)
+
+    @app.get("/api/sensors/{sensor_pk}/history")
+    def api_sensor_history(
+        sensor_pk: int, since: str | None = None, until: str | None = None
+    ):
+        if db.get_sensor(sensor_pk) is None:
+            raise HTTPException(404, "sensor not found")
+        start, end = _window(since, until)
+        return {"points": q.pressure_history(db, sensor_pk, 400, start, end)}
+
+    @app.get("/api/vehicles/{vehicle_id}/history")
+    def api_vehicle_history(
+        vehicle_id: int, since: str | None = None, until: str | None = None
+    ):
+        if db.get_vehicle(vehicle_id) is None:
+            raise HTTPException(404, "vehicle not found")
+        start, end = _window(since, until)
+        return {
+            "series": [
+                {
+                    "pk": sensor.pk,
+                    "name": f"{sensor.model}/{sensor.sensor_id}"
+                    + (f" {sensor.wheel_label}" if sensor.wheel_label else ""),
+                    "points": q.pressure_history(db, sensor.pk, 300, start, end),
+                }
+                for sensor in db.sensors_for_vehicle(vehicle_id)
+            ]
+        }
+
     # -- mutations --------------------------------------------------------
 
     def _back(

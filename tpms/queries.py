@@ -354,12 +354,46 @@ def events(
     ]
 
 
-def pressure_history(db: Database, sensor_pk: int, limit: int = 500) -> list[dict]:
-    rows = db.query(
+def _thin(rows: list[Any], limit: int) -> list[Any]:
+    """Evenly sample a long series down to ``limit`` points.
+
+    A week of readings from a resident sensor is tens of thousands of rows,
+    which no 900px-wide chart can show. Taking the newest N instead would be
+    cheaper but would quietly redraw the requested window as a much shorter
+    one, so sample across the whole span and always keep the last point --
+    that is the one the pages label as the latest reading.
+    """
+    if len(rows) <= limit or limit < 2:
+        return rows
+    step = (len(rows) - 1) / (limit - 1)
+    picked = [rows[round(i * step)] for i in range(limit)]
+    picked[-1] = rows[-1]
+    return picked
+
+
+def pressure_history(
+    db: Database,
+    sensor_pk: int,
+    limit: int = 500,
+    start: float | None = None,
+    end: float | None = None,
+) -> list[dict]:
+    sql = (
         "SELECT ts, pressure_kpa, temperature_c FROM readings "
-        "WHERE sensor_pk = ? AND pressure_kpa IS NOT NULL ORDER BY ts DESC LIMIT ?",
-        (sensor_pk, limit),
+        "WHERE sensor_pk = ? AND pressure_kpa IS NOT NULL"
     )
+    params: list[Any] = [sensor_pk]
+    if start is not None:
+        sql += " AND ts >= ?"
+        params.append(start)
+    if end is not None:
+        sql += " AND ts <= ?"
+        params.append(end)
+    # Read generously, then thin: the cap is on what gets plotted, not on how
+    # much of the window is looked at.
+    sql += " ORDER BY ts DESC LIMIT ?"
+    params.append(max(limit * 40, limit))
+    rows = list(reversed(db.query(sql, tuple(params))))
     return [
         {
             "ts": float(r["ts"]),
@@ -367,8 +401,70 @@ def pressure_history(db: Database, sensor_pk: int, limit: int = 500) -> list[dic
             "pressure_psi": float(r["pressure_kpa"]) / 6.894757,
             "temperature_c": r["temperature_c"],
         }
-        for r in reversed(rows)
+        for r in _thin(rows, limit)
     ]
+
+
+def activity(
+    db: Database,
+    start: float | None = None,
+    end: float | None = None,
+    buckets: int = 96,
+) -> dict[str, Any]:
+    """How busy the receiver has been, bucketed over a window.
+
+    Three quantities, because they answer different questions: readings say
+    how much RF got through, transmitters say how many distinct vehicles were
+    around, and passes -- sightings that began in the bucket -- say how much
+    traffic actually drove by, which is the one that shows a rush hour.
+    """
+    span = db.query("SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM readings")[0]
+    if span["lo"] is None:
+        return {"start": None, "end": None, "width": 0, "points": []}
+
+    start = float(span["lo"]) if start is None else max(float(start), 0.0)
+    end = float(span["hi"]) if end is None else float(end)
+    if end <= start:
+        end = start + 1.0
+    buckets = max(2, min(int(buckets), 500))
+    width = (end - start) / buckets
+
+    counts = {
+        int(r["b"]): (int(r["readings"]), int(r["sensors"]))
+        for r in db.query(
+            "SELECT CAST((r.ts - ?) / ? AS INTEGER) AS b, COUNT(*) AS readings, "
+            # Duplicate decodes are one transmitter, not two.
+            "COUNT(DISTINCT COALESCE(s.alias_of, s.pk)) AS sensors "
+            "FROM readings r JOIN sensors s ON s.pk = r.sensor_pk "
+            "WHERE r.ts >= ? AND r.ts < ? GROUP BY b",
+            (start, width, start, end),
+        )
+    }
+    passes = {
+        int(r["b"]): int(r["passes"])
+        for r in db.query(
+            "SELECT CAST((g.started_at - ?) / ? AS INTEGER) AS b, COUNT(*) AS passes "
+            "FROM sightings g JOIN sensors s ON s.pk = g.sensor_pk "
+            "WHERE s.alias_of IS NULL AND g.started_at >= ? AND g.started_at < ? "
+            "GROUP BY b",
+            (start, width, start, end),
+        )
+    }
+
+    # Empty buckets are filled in rather than skipped: a gap in the capture is
+    # exactly what this chart exists to make visible.
+    points = []
+    for i in range(buckets):
+        readings, sensors = counts.get(i, (0, 0))
+        points.append(
+            {
+                "ts": start + (i + 0.5) * width,
+                "readings": readings,
+                "sensors": sensors,
+                "passes": passes.get(i, 0),
+            }
+        )
+    return {"start": start, "end": end, "width": width, "points": points}
 
 
 def heard_alongside(

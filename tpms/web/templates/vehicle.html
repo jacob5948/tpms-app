@@ -157,14 +157,34 @@
 <script src="/static/chart.js"></script>
 <script>
 (function () {
+  const pk    = {{ vehicle.pk }};
   const data  = JSON.parse(document.getElementById('chart-data').textContent);
   const names = JSON.parse(document.getElementById('chart-names').textContent);
   const pks   = JSON.parse(document.getElementById('chart-pks').textContent);
-  tpmsChart(document.getElementById('chart'), pks.map((pk, i) => ({
+
+  const chart = tpmsChart(document.getElementById('chart'), pks.map((sensorPk, i) => ({
     name: names[i],
-    points: (data[pk] || []).map(r => ({ ts: r.ts, value: r.pressure_psi })),
-  })), { label: 'Tyre pressure over time',
-         caption: 'psi per wheel, oldest to newest reading.' });
+    points: (data[sensorPk] || []).map(r => ({ ts: r.ts, value: r.pressure_psi })),
+  })), {
+    label: 'Tyre pressure over time',
+    caption: 'psi per wheel, oldest to newest. Drag to zoom, double-click to reset.',
+    onRange: seconds => load(seconds),
+  });
+
+  async function load(seconds) {
+    const since = seconds ? Math.round(seconds / 60) + 'm' : null;
+    try {
+      const url = '/api/vehicles/' + pk + '/history' + (since ? '?since=' + since : '');
+      const body = await (await fetch(url)).json();
+      chart.setSeries(body.series.map(s => ({
+        name: s.name,
+        points: s.points.map(r => ({ ts: r.ts, value: r.pressure_psi })),
+      })), seconds || 'all');
+    } catch (e) { /* leave the window that is already drawn */ }
+  }
+
+  // Inline data paints first; the full history replaces it once fetched.
+  load(null);
 })();
 </script>
 {% endblock %}

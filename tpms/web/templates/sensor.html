@@ -198,19 +198,44 @@
 <script src="/static/chart.js"></script>
 <script>
 (function () {
-  const rows = JSON.parse(document.getElementById('chart-data').textContent);
+  const pk = {{ s.pk }};
   // Separate axes: psi and °C occupy different ranges, and forcing them onto
   // one axis flattened whichever had the smaller spread.
-  tpmsChart(document.getElementById('chart-psi'), [
-    { name: 'psi', points: rows.map(r => ({ ts: r.ts, value: r.pressure_psi })) },
-  ], { label: 'Tyre pressure over time', height: 190, caption: 'psi, oldest to newest reading.' });
-  tpmsChart(document.getElementById('chart-temp'), [
-    { name: '°C', color: window.TPMS_COLORS[2],
+  const psi = tpmsChart(document.getElementById('chart-psi'), [], {
+    label: 'Tyre pressure over time', height: 190,
+    caption: 'psi, oldest to newest reading. Drag to zoom, double-click to reset.',
+    onRange: seconds => load(seconds),
+  });
+  // One set of range buttons drives both charts, so the temperature plot
+  // never shows a window the pressure plot is not also showing.
+  const temp = tpmsChart(document.getElementById('chart-temp'), [], {
+    label: 'Temperature over time', height: 150, noTools: true,
+    empty: 'No temperature readings from this decoder.',
+    caption: '°C, same window.',
+  });
+
+  function draw(rows, range) {
+    psi.setSeries([{ name: 'psi',
+      points: rows.map(r => ({ ts: r.ts, value: r.pressure_psi })) }], range);
+    temp.setSeries([{ name: '°C', color: window.TPMS_COLORS[2],
       points: rows.filter(r => r.temperature_c != null)
-                  .map(r => ({ ts: r.ts, value: r.temperature_c })) },
-  ], { label: 'Temperature over time', height: 150,
-       empty: 'No temperature readings from this decoder.',
-       caption: '°C, same window.' });
+                  .map(r => ({ ts: r.ts, value: r.temperature_c })) }], range);
+  }
+
+  // The page ships with a recent window inline so something is on screen
+  // immediately; the full history follows from the server, and no range chip
+  // lights up until we know which window is actually being shown.
+  draw(JSON.parse(document.getElementById('chart-data').textContent));
+
+  async function load(seconds) {
+    const since = seconds ? Math.round(seconds / 60) + 'm' : null;
+    try {
+      const url = '/api/sensors/' + pk + '/history' + (since ? '?since=' + since : '');
+      draw((await (await fetch(url)).json()).points, seconds || 'all');
+    } catch (e) { /* leave the window that is already drawn */ }
+  }
+
+  load(null);
 })();
 </script>
 {% endblock %}
