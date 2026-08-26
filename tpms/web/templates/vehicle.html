@@ -123,6 +123,7 @@
 
 <h2>Pressure history</h2>
 <div class="panel">
+  <div id="chart-range"></div>
   <div id="chart"></div>
   <script id="chart-data" type="application/json">{{ history | tojson }}</script>
   <script id="chart-names" type="application/json">{{ sensors | map(attribute='display') | list | tojson }}</script>
@@ -168,19 +169,27 @@
   })), {
     label: 'Tyre pressure over time',
     caption: 'psi per wheel, oldest to newest. Drag to zoom, double-click to reset.',
-    onRange: seconds => load(seconds),
+  });
+  const bar = tpmsRangeBar(document.getElementById('chart-range'), {
+    charts: [chart], active: 'all', onRange: seconds => load(seconds),
   });
 
   async function load(seconds) {
     const since = seconds ? Math.round(seconds / 60) + 'm' : null;
+    chart.setLoading(true);
     try {
       const url = '/api/vehicles/' + pk + '/history' + (since ? '?since=' + since : '');
-      const body = await (await fetch(url)).json();
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(response.status);
+      const body = await response.json();
       chart.setSeries(body.series.map(s => ({
         name: s.name,
         points: s.points.map(r => ({ ts: r.ts, value: r.pressure_psi })),
       })), seconds || 'all');
-    } catch (e) { /* leave the window that is already drawn */ }
+      bar.refresh();
+    } catch (e) {
+      chart.setError('Could not load this vehicle\u2019s history.', () => load(seconds));
+    }
   }
 
   // Inline data paints first; the full history replaces it once fetched.

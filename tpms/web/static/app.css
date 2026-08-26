@@ -91,7 +91,7 @@ tbody tr:hover { background: var(--panel-2); }
   border-radius: var(--radius); padding: 15px;
 }
 .card.review { border-color: var(--warn); }
-.card h3 { margin: 0 0 2px; font-size: 15.5px; }
+.card h3 { margin: 0 0 2px; font-size: 15.5px; overflow-wrap: anywhere; }
 .card .meta { color: var(--muted); font-size: 12.5px; margin-bottom: 12px; }
 .wheels { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .wheel {
@@ -102,8 +102,14 @@ tbody tr:hover { background: var(--panel-2); }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
 .stat { background: var(--panel-2); border-radius: 8px; padding: 11px 13px; }
+/* Primary tiles answer the page's question; secondary ones qualify them. */
+.stats.primary { margin-bottom: 10px; }
+.stats.primary .stat { padding: 14px 16px; }
+.stats.primary .stat .v { font-size: 26px; }
+.stat.secondary { background: transparent; border: 1px solid var(--line); padding: 8px 11px; }
+.stat.secondary .v { font-size: 15px; font-weight: 600; }
 .stat .k { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.stat .v { font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.stat .v { font-size: 19px; font-weight: 650; }
 
 button, .btn {
   font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
@@ -188,6 +194,33 @@ a.wheel:hover { text-decoration: none; outline: 1px solid var(--accent); }
 .chip:hover { border-color: var(--accent); color: var(--ink); }
 .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .chart-window { font-size: 12px; margin-left: 4px; }
+.chart-zoom { gap: 8px; margin-top: 8px; }
+/* .row is display:flex, which beats the UA rule for [hidden]. */
+.chart-zoom[hidden] { display: none; }
+.chart + .chart, .chart-tools + .chart { margin-top: 14px; }
+
+/* Loading: a block the size of the finished plot, so nothing jumps when the
+   fetch lands. Refetching holds the last render instead of flashing. */
+.chart-skeleton {
+  background: linear-gradient(100deg,
+    var(--panel-2) 30%, color-mix(in srgb, var(--panel-2) 55%, transparent) 50%, var(--panel-2) 70%);
+  background-size: 250% 100%; border-radius: 8px;
+  animation: sweep 1.6s ease-in-out infinite;
+}
+@keyframes sweep { from { background-position: 130% 0; } to { background-position: -30% 0; } }
+.chart-plot.is-loading { opacity: 0.55; transition: opacity 0.15s; }
+.chart-error { padding: 22px; text-align: center; color: var(--muted); font-size: 14px; }
+.chart-error p { margin: 0 0 10px; }
+
+/* The table twin: every plotted number reachable without reading colour. */
+.chart-table { margin-top: 10px; }
+.chart-table summary {
+  cursor: pointer; font-size: 12.5px; color: var(--muted); width: fit-content;
+}
+.chart-table summary:hover { color: var(--accent); }
+.chart-table[open] summary { margin-bottom: 8px; }
+.chart-table .scroll { max-height: 320px; overflow-y: auto; }
+.chart-table th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
 /* uPlot draws to canvas with no notion of our palette, so the chrome around
    it is themed here and the canvas colours are sampled from the page. */
 .uplot, .u-wrap { max-width: 100%; }
@@ -278,4 +311,30 @@ th.sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2
 @media (prefers-reduced-motion: reduce) {
   .toast { animation: none; }
   button.busy { animation: none; }
+}
+
+/* -- small screens ------------------------------------------------------
+   Tables keep their horizontal scroll rather than reflowing into cards --
+   comparing psi across wheels is the job, and cards break the column. The
+   first cell stays put instead, so the row never loses its identity. */
+@media (max-width: 640px) {
+  main { padding: 16px 12px 48px; }
+  header.top { gap: 10px; padding: 10px 12px; }
+  .stats { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+  .stats.primary .stat .v { font-size: 22px; }
+  .page-head { flex-direction: column; align-items: stretch; }
+  .page-head form, .page-head .btn, .page-head button { width: 100%; }
+  .grid { grid-template-columns: 1fr; }
+  #feed { max-height: 320px; }
+  .filter-bar input[type="search"] { max-width: none; }
+  .chart-tools { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px; }
+  /* Let the row stay one line and the table scroll, rather than a long
+     vehicle name wrapping every row to three lines tall. */
+  .scroll table td { white-space: nowrap; }
+  .scroll table td:first-child, .scroll table th:first-child {
+    position: sticky; left: 0; background: var(--panel);
+    box-shadow: 1px 0 0 var(--line);
+  }
+  tbody tr:hover td:first-child { background: var(--panel-2); }
+  .toast { max-width: calc(100vw - 32px); }
 }

@@ -29,18 +29,27 @@
   </div>
 </div>
 
-<div class="stats">
+{# What this sensor is reading right now, and when it said so. Everything
+   else about it qualifies these three, so it sits below at half the weight. #}
+<div class="stats primary">
   {{ m.stat('Pressure', ('%.1f psi' % s.pressure_psi) if s.pressure_psi is not none else '—',
-            ('%.0f kPa' % s.pressure_kpa) if s.pressure_kpa is not none else None) }}
-  {{ m.stat('Temperature', ('%.0f °C' % s.temperature_c) if s.temperature_c is not none else '—') }}
-  {{ m.stat('Battery', m.battery(s.battery_ok)) }}
+            (('%.0f kPa · as of ' % s.pressure_kpa) ~ (s.last_seen | ago))
+            if s.pressure_kpa is not none else ('as of ' ~ (s.last_seen | ago))) }}
+  {{ m.stat('Temperature', ('%.0f °C' % s.temperature_c) if s.temperature_c is not none else '—',
+            'as of ' ~ (s.last_seen | ago)) }}
+  {{ m.stat('Battery', m.battery(s.battery_ok), 'as of ' ~ (s.last_seen | ago)) }}
+</div>
+
+<div class="stats">
   {{ m.stat('Band', s.bands[0].label if s.bands else '—',
-            (s.bands | length ~ ' bands heard') if s.bands | length > 1 else None) }}
+            (s.bands | length ~ ' bands heard') if s.bands | length > 1 else None,
+            tier='secondary') }}
   {{ m.stat('Signal', ('%.1f dB' % s.rssi) if s.rssi is not none else '—',
-            ('SNR %.1f' % s.snr) if s.snr is not none else None) }}
-  {{ m.stat('Readings', s.reading_count, s.sightings | length ~ ' sighting(s)') }}
-  {{ m.stat('First heard', s.first_seen | ago, s.first_seen_iso) }}
-  {{ m.stat('Last heard', s.last_seen | ago, s.last_seen_iso) }}
+            ('SNR %.1f' % s.snr) if s.snr is not none else None, tier='secondary') }}
+  {{ m.stat('Readings', s.reading_count, s.sightings | length ~ ' sighting(s)',
+            tier='secondary') }}
+  {{ m.stat('First heard', s.first_seen | ago, s.first_seen_iso, tier='secondary') }}
+  {{ m.stat('Last heard', s.last_seen | ago, s.last_seen_iso, tier='secondary') }}
 </div>
 
 <div class="panel">
@@ -90,6 +99,7 @@
 
 <h2>Pressure &amp; temperature</h2>
 <div class="panel">
+  <div id="chart-range"></div>
   <div id="chart-psi"></div>
   <div id="chart-temp" style="margin-top:18px"></div>
   <script id="chart-data" type="application/json">{{ s.history | tojson }}</script>
@@ -199,40 +209,47 @@
 <script>
 (function () {
   const pk = {{ s.pk }};
-  // Separate axes: psi and °C occupy different ranges, and forcing them onto
-  // one axis flattened whichever had the smaller spread.
+  // Two plots, not two y axes: psi and °C occupy different ranges, and a
+  // second scale on one plot would invite reading a relationship off where
+  // the two happened to line up. The cursor is synced instead.
   const psi = tpmsChart(document.getElementById('chart-psi'), [], {
-    label: 'Tyre pressure over time', height: 190,
+    label: 'Tyre pressure over time', height: 190, sync: 'sensor-{{ s.pk }}',
     caption: 'psi, oldest to newest reading. Drag to zoom, double-click to reset.',
-    onRange: seconds => load(seconds),
   });
-  // One set of range buttons drives both charts, so the temperature plot
-  // never shows a window the pressure plot is not also showing.
   const temp = tpmsChart(document.getElementById('chart-temp'), [], {
-    label: 'Temperature over time', height: 150, noTools: true,
+    label: 'Temperature over time', height: 150, sync: 'sensor-{{ s.pk }}',
     empty: 'No temperature readings from this decoder.',
     caption: '°C, same window.',
+  });
+  const bar = tpmsRangeBar(document.getElementById('chart-range'), {
+    charts: [psi, temp], active: 'all', onRange: seconds => load(seconds),
   });
 
   function draw(rows, range) {
     psi.setSeries([{ name: 'psi',
       points: rows.map(r => ({ ts: r.ts, value: r.pressure_psi })) }], range);
-    temp.setSeries([{ name: '°C', color: window.TPMS_COLORS[2],
+    temp.setSeries([{ name: '°C', color: window.TPMS_COLORS[3],
       points: rows.filter(r => r.temperature_c != null)
                   .map(r => ({ ts: r.ts, value: r.temperature_c })) }], range);
+    bar.refresh();
   }
 
   // The page ships with a recent window inline so something is on screen
-  // immediately; the full history follows from the server, and no range chip
-  // lights up until we know which window is actually being shown.
+  // immediately; the full history follows from the server.
   draw(JSON.parse(document.getElementById('chart-data').textContent));
 
   async function load(seconds) {
     const since = seconds ? Math.round(seconds / 60) + 'm' : null;
+    [psi, temp].forEach(c => c.setLoading(true));
     try {
       const url = '/api/sensors/' + pk + '/history' + (since ? '?since=' + since : '');
-      draw((await (await fetch(url)).json()).points, seconds || 'all');
-    } catch (e) { /* leave the window that is already drawn */ }
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(response.status);
+      draw((await response.json()).points, seconds || 'all');
+    } catch (e) {
+      [psi, temp].forEach(c => c.setError(
+        'Could not load this sensor\u2019s history.', () => load(seconds)));
+    }
   }
 
   load(null);

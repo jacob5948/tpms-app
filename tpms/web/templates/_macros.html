@@ -59,9 +59,11 @@
 {%- else -%}<span class="muted">—</span>{%- endif -%}
 {% endmacro %}
 
-{# `flag` turns the tile into a filter toggle for the table below it. #}
-{% macro stat(label, value, hint=None, flag=None) %}
-<div class="stat{{ ' toggle' if flag }}"{% if flag %} data-filter-flag="{{ flag }}" aria-pressed="false"{% endif %}>
+{# `flag` turns the tile into a filter toggle for the table below it.
+   `tier='secondary'` is for values that qualify a primary one rather than
+   answering the page's question: smaller, quieter, still on the surface. #}
+{% macro stat(label, value, hint=None, flag=None, tier='primary') %}
+<div class="stat{{ ' toggle' if flag }}{{ ' secondary' if tier == 'secondary' }}"{% if flag %} data-filter-flag="{{ flag }}" aria-pressed="false"{% endif %}>
   <div class="k">{{ label }}</div>
   <div class="v">{{ value }}</div>
   {% if hint %}<div class="h">{{ hint }}</div>{% endif %}

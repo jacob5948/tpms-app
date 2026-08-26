@@ -10,19 +10,27 @@
   car falls silent too.
 </p>
 
-<div class="stats">
+<div class="stats primary">
   {{ m.stat('Audible now', heard | length, 'sensors with an open sighting') }}
-  {{ m.stat('Vehicles present', heard | map(attribute='vehicle_id') | select | unique | list | length) }}
+  {{ m.stat('Vehicles present', heard | map(attribute='vehicle_id') | select | unique | list | length,
+            'with at least one wheel audible') }}
   <div class="stat" id="rate-stat">
     <div class="k">Readings/min</div>
     <div class="v" id="rate">—</div>
-    <div class="h">last 5 minutes</div>
+    {# As-of, not a window: the tiles are re-read on a timer, and a stale one
+       looks identical to a quiet street otherwise. #}
+    <div class="h">last 5 minutes · <span data-ts="{{ now }}">just now</span></div>
   </div>
 </div>
 
 <h2>Activity</h2>
 <div class="panel">
-  <div id="activity"></div>
+  {# One range row above both facets: two views of one window must never be
+     able to disagree about which window that is. #}
+  <div id="activity-range"></div>
+  <div id="activity-readings"></div>
+  <div id="activity-sensors"></div>
+  <p class="sub" id="activity-asof">&nbsp;</p>
 </div>
 
 <h2>Heard now</h2>
@@ -47,45 +55,68 @@
 {% block scripts %}
 <script src="/static/chart.js"></script>
 <script>
-/* Overall activity. Bars are readings, which is how much RF got through; the
- * line is how many distinct transmitters were audible in the same bucket, so a
- * tall bar from one chatty resident sensor cannot be mistaken for traffic. */
-let activity = null;
+/* Overall activity, as two stacked facets rather than one plot with two y
+ * scales: where two scales line up is arbitrary, and reading a correlation
+ * off that alignment is reading something the data never said. The cursor is
+ * synced, so the pair still reads as one figure. */
 let activityRange = 86400;
+const activityCharts = {
+  readings: tpmsChart(document.getElementById('activity-readings'), [], {
+    label: 'Readings over time', height: 150, zeroBased: true, decimals: 0,
+    sync: 'activity', empty: 'No readings captured yet.',
+  }),
+  sensors: tpmsChart(document.getElementById('activity-sensors'), [], {
+    label: 'Distinct transmitters over time', height: 130, zeroBased: true,
+    decimals: 0, sync: 'activity', empty: 'No readings captured yet.',
+  }),
+};
+const activityBar = tpmsRangeBar(document.getElementById('activity-range'), {
+  charts: [activityCharts.readings, activityCharts.sensors],
+  active: activityRange,
+  onRange: seconds => { activityRange = seconds; loadActivity(seconds); },
+});
 
 async function loadActivity(seconds) {
   const since = seconds ? Math.round(seconds / 3600) + 'h' : null;
   const url = '/api/activity?buckets=96' + (since ? '&since=' + since : '');
+  Object.values(activityCharts).forEach(c => c.setLoading(true));
   let data;
   try {
-    data = await (await fetch(url)).json();
-  } catch (e) { return; }
-  const series = [
-    { name: 'readings', kind: 'bar',
-      points: data.points.map(p => ({ ts: p.ts, value: p.readings })) },
-    { name: 'transmitters heard', axis: 'right', color: window.TPMS_COLORS[1],
-      points: data.points.map(p => ({ ts: p.ts, value: p.sensors })) },
-  ];
-  const bucket = data.width ? Math.max(1, Math.round(data.width / 60)) : 0;
-  const caption = bucket
-    ? 'Readings per ' + bucket + '-minute bucket, and distinct transmitters in each.'
-    : 'Nothing captured yet.';
-  if (activity) {
-    activity.setSeries(series, seconds || 'all');
-    activity.setCaption(caption);
-  } else {
-    activity = tpmsChart(document.getElementById('activity'), series, {
-      label: 'Receiver activity over time', height: 190, zeroBased: true,
-      decimals: 0, activeRange: seconds || 'all', caption: caption,
-      empty: 'No readings captured yet.',
-      onRange: s => { activityRange = s; loadActivity(s); },
-    });
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(response.status);
+    data = await response.json();
+  } catch (e) {
+    Object.values(activityCharts).forEach(c => c.setError(
+      'Could not load activity. The receiver may be restarting.',
+      () => loadActivity(activityRange)));
+    return;
   }
+  const range = seconds || 'all';
+  const bucket = data.width ? Math.max(1, Math.round(data.width / 60)) : 0;
+  activityCharts.readings.setSeries([{ name: 'readings', kind: 'bar',
+    points: data.points.map(p => ({ ts: p.ts, value: p.readings })) }], range);
+  activityCharts.sensors.setSeries([
+    { name: 'transmitters heard', color: window.TPMS_COLORS[1],
+      points: data.points.map(p => ({ ts: p.ts, value: p.sensors })) },
+    { name: 'drive-bys', color: window.TPMS_COLORS[2],
+      points: data.points.map(p => ({ ts: p.ts, value: p.passes })) },
+  ], range);
+  activityCharts.readings.setCaption(bucket
+    ? 'Readings per ' + bucket + '-minute bucket. How much RF got through.'
+    : 'Nothing captured yet.');
+  activityCharts.sensors.setCaption(
+    'Distinct transmitters audible in each bucket, and how many sightings ' +
+    'began in it. A resident sensor lifts the bars above without lifting these.');
+  activityBar.refresh();
+  const asof = document.getElementById('activity-asof');
+  asof.innerHTML = 'as of <span data-ts="' + (Date.now() / 1000).toFixed(0) + '">just now</span>';
 }
 loadActivity(activityRange);
 // Polling would throw away a window the user had zoomed into, so hold off
 // while one is open.
-setInterval(() => { if (!activity || !activity.zoomed()) loadActivity(activityRange); }, 60000);
+setInterval(() => {
+  if (!Object.values(activityCharts).some(c => c.zoomed())) loadActivity(activityRange);
+}, 60000);
 
 const body = document.getElementById('feed-body');
 const MAX_ROWS = 200;
@@ -147,7 +178,8 @@ async function refreshRate() {
   try {
     const s = await (await fetch('/api/status')).json();
     document.getElementById('rate').textContent = s.readings_per_min;
-  } catch (e) { /* leave the last known value */ }
+    document.querySelector('#rate-stat [data-ts]').dataset.ts = Date.now() / 1000;
+  } catch (e) { /* leave the last known value, and let its as-of age */ }
 }
 refreshRate();
 setInterval(refreshRate, 30000);

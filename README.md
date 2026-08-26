@@ -210,15 +210,20 @@ automatically, so your correction survives the next clustering run.
 - **Events** — the appear / last-heard log, filterable, with CSV export.
 
 The Live page opens with an **activity chart**: readings per bucket as bars,
-against the number of distinct transmitters heard in the same bucket as a line
-on its own axis — so one chatty resident sensor cannot be mistaken for traffic.
-Quiet buckets are drawn as zero rather than skipped, because a gap in the
-capture is the thing worth seeing.
+and below it, on its own plot sharing the same window, how many distinct
+transmitters were heard and how many sightings began — so one chatty resident
+sensor cannot be mistaken for traffic. Two plots rather than two y axes on one:
+where two scales line up is arbitrary, and a reader should not be invited to
+read a relationship off it. Quiet buckets are drawn as zero rather than
+skipped, because a gap in the capture is the thing worth seeing.
 
 Every chart takes a cursor: hover to read values off it, drag to zoom into a
-window, double-click to go back. The range buttons above each chart fetch a
+window, double-click to go back. Stacked plots share one cursor and one zoom.
+The range buttons sit in a single row above the charts they scope and fetch a
 wider window from the server rather than re-slicing what the page happened to
 ship with, and a range only appears when there is enough history to fill it.
+Every chart has a **Show as table** twin underneath, so no value is reachable
+only by reading a colour off a line.
 
 Every table sorts on a header click, and remembers your choice per page. Times
 sort by their real timestamp rather than the words "8m ago", and blanks always

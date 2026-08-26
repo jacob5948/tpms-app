@@ -110,6 +110,7 @@ def create_app(service: Service) -> FastAPI:
             "live.html",
             heard=q.heard_now(db),
             gap=gap,
+            now=now_ts(),
             recent=q.events(db, limit=25),
         )
 
