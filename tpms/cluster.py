@@ -114,30 +114,52 @@ class Clusterer:
                 )
         return edges
 
-    def _profiles(self) -> dict[int, tuple[str, float | None]]:
-        """Decoder and median signal level per sensor."""
+    def _profiles(self) -> dict[int, tuple[set[str], float | None]]:
+        """Decoders that produced each sensor, and its mean signal level.
+
+        The decoder set spans the sensor's duplicate decodes, not just the one
+        kept as canonical. Collapsing duplicates otherwise destroys the signal
+        this relies on: three wheels all decoded as Jansite can end up with
+        canonical models of Jansite, Citroen and Renault, and comparing only
+        those makes one car look like three.
+        """
         rows = self.db.query(
             """
-            SELECT s.pk, s.model,
+            SELECT COALESCE(s.alias_of, s.pk) AS root, s.model,
                    (SELECT AVG(r.rssi) FROM readings r WHERE r.sensor_pk = s.pk) AS rssi
               FROM sensors s
             """
         )
-        return {int(r["pk"]): (r["model"], r["rssi"]) for r in rows}
+        decoders: dict[int, set[str]] = {}
+        levels: dict[int, list[float]] = {}
+        for row in rows:
+            root = int(row["root"])
+            decoders.setdefault(root, set()).add(row["model"])
+            if row["rssi"] is not None:
+                levels.setdefault(root, []).append(float(row["rssi"]))
+        return {
+            root: (
+                models,
+                sum(levels[root]) / len(levels[root]) if levels.get(root) else None,
+            )
+            for root, models in decoders.items()
+        }
 
     def _same_vehicle_shape(
-        self, a: int, b: int, profiles: dict[int, tuple[str, float | None]]
+        self, a: int, b: int, profiles: dict[int, tuple[set[str], float | None]]
     ) -> bool:
         """Could these two be wheels on one vehicle, seen once?
 
         Wheels on a car share an OEM sensor type and sit roughly the same
         distance from the receiver. Two unrelated cars passing at the same
-        moment usually differ in at least one of those.
+        moment usually differ in at least one of those. Sensor type is tested
+        as an overlap between decoder sets, so two wheels still match when a
+        shared decoder was kept as canonical for only one of them.
         """
         left, right = profiles.get(a), profiles.get(b)
         if left is None or right is None:
             return False
-        if left[0] != right[0]:
+        if not (left[0] & right[0]):
             return False
         if left[1] is None or right[1] is None:
             return True  # no signal data to judge on; timing alone will do

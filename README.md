@@ -128,7 +128,13 @@ Duplicates are folded into one canonical sensor before clustering.
 Most vehicles on a public road pass once and never return, so they can never
 reach `min_cooccurrences`. When `clustering.single_pass` is on (the default),
 sensors heard together in one pass that share a decoder and a comparable signal
-level are grouped anyway, and the vehicle is marked **provisional**. It is
+level are grouped anyway, and the vehicle is marked **provisional**.
+
+"Share a decoder" means their decoder *sets* overlap, counting duplicate
+decodes. That matters: three wheels all decoded as Jansite can end up with
+canonical models of Jansite, Citroen and Renault after duplicates are
+collapsed, and comparing only the canonical model would split one car
+into three. It is
 promoted to confirmed if the same sensors are heard together again.
 
 Turn `single_pass` off if you only care about vehicles that visit repeatedly.

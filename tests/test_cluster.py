@@ -137,3 +137,36 @@ def test_full_synthetic_scenario(ingestor, db):
         ["ff0a01", "ff0a02", "ff0a03", "ff0a04"],
     ]
     assert next(s for s in db.list_sensors() if s.sensor_id == "dec0y1").vehicle_id is None
+
+
+def test_duplicate_collapse_does_not_split_a_vehicle(ingestor, db):
+    """Wheels must stay together when dedup gives them different canonicals.
+
+    From a real capture: three wheels were all decoded as Jansite, and grouped
+    correctly. Each was also decoded by a second protocol, so after duplicate
+    collapse their canonical models became Citroen, Citroen and Renault --
+    and comparing canonical models alone split one car into two.
+    """
+    from tpms.aliases import AliasDetector
+
+    def burst(when, rssi, snr, decodes):
+        for model, sensor_id in decodes:
+            ingestor.handle_object(
+                {"time": when, "model": model, "type": "TPMS", "id": sensor_id,
+                 "rssi": rssi, "snr": snr, "pressure_kPa": 230}
+            )
+
+    burst("2026-08-26 02:22:18", -7.0, 9.4, [("Renault", "1f83f9"), ("Jansite", "d94442f")])
+    burst("2026-08-26 02:22:26", -9.8, 10.4, [("Citroen", "0f154d9e"), ("Jansite", "c20f154")])
+    burst("2026-08-26 02:22:36", -8.1, 11.1, [("Citroen", "0f14dbd2"), ("Jansite", "c20f14d")])
+
+    AliasDetector(db).run()
+    report = Clusterer(db).run()
+
+    canonical = [s for s in db.list_sensors() if s.alias_of is None]
+    assert len(canonical) == 3, "three transmitters, six decodes"
+    assert len(report.components) == 1, "the three wheels are one vehicle"
+    assert len(report.components[0]) == 3
+
+    models = {s.model for s in canonical}
+    assert len(models) > 1, "the canonicals really do differ, which is the point"

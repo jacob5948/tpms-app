@@ -218,8 +218,11 @@ def cmd_diagnose(args: argparse.Namespace) -> int:
                 reasons.append(f"support {support:.2f} < {cfg.min_support}")
             if cfg.single_pass:
                 left, right = profiles.get(a), profiles.get(b)
-                if left and right and left[0] != right[0]:
-                    reasons.append(f"different decoders ({left[0]} vs {right[0]})")
+                if left and right and not (left[0] & right[0]):
+                    reasons.append(
+                        f"no shared decoder ({'/'.join(sorted(left[0]))} vs "
+                        f"{'/'.join(sorted(right[0]))})"
+                    )
                 elif left and right and left[1] is not None and right[1] is not None:
                     spread = abs(left[1] - right[1])
                     if spread > cfg.single_pass_rssi_spread:
