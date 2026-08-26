@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Sensors &middot; TPMS{% endblock %}
+{% block body %}
+<h1>Sensors</h1>
+<p class="sub">
+  Every distinct transmitter heard. Identity is model + ID together, because raw
+  IDs collide between protocols. Moving a sensor by hand pins it, so automatic
+  clustering will not move it back.
+</p>
+
+<div class="panel scroll">
+  {% if sensors %}
+  <table>
+    <thead><tr>
+      <th>Sensor</th><th>Vehicle</th><th class="num">psi</th><th class="num">&deg;C</th>
+      <th>Battery</th><th class="num">Readings</th><th>First heard</th><th>Last heard</th><th>Assign</th>
+    </tr></thead>
+    <tbody>
+      {% for s in sensors %}
+      <tr>
+        <td class="mono">
+          {% if s.present %}<span class="dot live"></span>{% endif %}{{ s.display }}
+          {% if s.pinned %} <span class="pill">pinned</span>{% endif %}
+        </td>
+        <td>
+          {% if s.vehicle_id %}<a href="/vehicles/{{ s.vehicle_id }}">{{ s.vehicle_name }}</a>
+          {% else %}<span class="pill">unassigned</span>{% endif %}
+        </td>
+        <td class="num">{{ '%.1f' % s.pressure_psi if s.pressure_psi is not none else '-' }}</td>
+        <td class="num">{{ '%.1f' % s.temperature_c if s.temperature_c is not none else '-' }}</td>
+        <td>{% if s.battery_ok == 0 %}<span class="pill warn">low</span>{% elif s.battery_ok == 1 %}ok{% else %}-{% endif %}</td>
+        <td class="num">{{ s.reading_count }}</td>
+        <td>{{ s.first_seen | ago }}</td>
+        <td>{{ s.last_seen | ago }}</td>
+        <td>
+          <form class="inline" method="post" action="/api/sensors/{{ s.pk }}">
+            <select name="vehicle_id">
+              <option value="none">unassigned</option>
+              <option value="new">new vehicle</option>
+              {% for v in vehicles %}
+              <option value="{{ v.pk }}" {{ 'selected' if v.pk == s.vehicle_id }}>{{ v.display }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit">Apply</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">No sensors heard yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

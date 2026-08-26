@@ -1,0 +1,72 @@
+# TPMS capture configuration. Copy to config.yaml and edit.
+
+database: tpms.db
+
+radio:
+  # Path to the rtl_433 binary.
+  binary: rtl_433
+
+  # Frequencies to listen on, in Hz-ish rtl_433 notation.
+  # One entry  -> tuned permanently to that band.
+  # Two+ entries -> rtl_433 hops between them every `hop_seconds`.
+  #
+  # 315M   = North American factory TPMS (Toyota, Ford, GM, Honda, Nissan)
+  # 433.92M = EU factory TPMS + most aftermarket / trailer sensors
+  #
+  # NOTE: hopping halves the duty cycle per band. Since sensors only transmit
+  # every ~30-60s while rolling, hopping will miss a real fraction of passes.
+  frequencies:
+    - 315M
+  hop_seconds: 30
+
+  # Tuner options. Leave gain null for AGC.
+  device: null        # e.g. "0" or a serial number
+  gain: null          # e.g. 40.2
+  ppm_error: null     # e.g. 12
+  sample_rate: null   # e.g. 1024k
+
+  # Restrict decoding to TPMS protocols only. Big CPU saving on a Pi and it
+  # keeps weather stations / doorbells out of the log. Set true to decode all.
+  all_protocols: false
+
+  # Extra raw arguments appended to the rtl_433 command line.
+  extra_args: []
+
+  # Archive every raw JSON line rtl_433 emits, so a normalization bug can
+  # never lose data. Set to null to disable.
+  raw_archive_dir: raw
+
+  # Restart backoff bounds (seconds) if rtl_433 exits.
+  restart_min_delay: 1
+  restart_max_delay: 60
+
+sessions:
+  # A sensor stays in the same sighting while readings arrive at least this
+  # often. Must comfortably exceed the sensor transmit interval (~30-60s).
+  gap_seconds: 120
+
+  # How often the background sweeper closes sightings that have gone quiet.
+  sweep_interval_seconds: 15
+
+clustering:
+  # Two sensors "co-occur" when heard within this many seconds of each other.
+  window_seconds: 10
+
+  # A pair is only counted once per shared sighting, so a single long pass
+  # cannot manufacture a strong edge.
+  min_cooccurrences: 3
+
+  # count / min(sightings_a, sightings_b). Rejects unrelated vehicles that
+  # happened to pass together a few times.
+  min_support: 0.6
+
+  # Components larger than this are flagged for manual review rather than
+  # auto-committed -- an oversized component is almost always a bad merge.
+  max_cluster_size: 6
+
+  # Re-run clustering automatically this often (seconds). 0 disables.
+  auto_interval_seconds: 300
+
+web:
+  host: 0.0.0.0
+  port: 8080

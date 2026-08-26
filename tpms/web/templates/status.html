@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Status &middot; TPMS{% endblock %}
+{% block body %}
+<h1>Status</h1>
+<p class="sub">Receiver health and capture totals.</p>
+
+<div class="panel">
+  <div class="row" style="margin-bottom:14px">
+    <strong style="font-size:15px">
+      {% if not status.radio.enabled %}
+        <span class="dot off"></span>Radio disabled (--no-radio)
+      {% elif status.radio.running %}
+        <span class="dot live"></span>rtl_433 running (pid {{ status.radio.pid }})
+      {% else %}
+        <span class="dot off"></span>rtl_433 not running
+      {% endif %}
+    </strong>
+    <form class="inline right" method="post" action="/api/radio/restart">
+      <button type="submit">Restart receiver</button>
+    </form>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="k">Tuned</div><div class="v">{{ status.radio.frequencies | join(', ') }}</div></div>
+    <div class="stat"><div class="k">Mode</div><div class="v">{{ 'hopping' if status.radio.hopping else 'fixed' }}</div></div>
+    <div class="stat"><div class="k">Readings / min</div><div class="v">{{ status.readings_per_min }}</div></div>
+    <div class="stat"><div class="k">Restarts</div><div class="v">{{ status.radio.restarts }}</div></div>
+    <div class="stat"><div class="k">Last packet</div><div class="v" style="font-size:15px">{{ status.radio.last_line_at | ago }}</div></div>
+  </div>
+
+  {% if status.radio.last_error %}
+  <div class="note" style="margin-top:14px"><strong>Last receiver message:</strong> {{ status.radio.last_error }}</div>
+  {% endif %}
+
+  <h2>Command line</h2>
+  <div class="mono" style="word-break:break-all;color:var(--muted)">{{ status.radio.command }}</div>
+</div>
+
+<h2>Totals</h2>
+<div class="panel">
+  <div class="stats">
+    {% for key, value in status.counts.items() %}
+    <div class="stat"><div class="k">{{ key.replace('_', ' ') }}</div><div class="v">{{ value }}</div></div>
+    {% endfor %}
+  </div>
+  <p class="sub" style="margin:14px 0 0">
+    Database: <span class="mono">{{ status.database }}</span><br>
+    Ingest since start: {{ status.ingest.readings }} readings,
+    {{ status.ingest.skipped }} non-TPMS skipped,
+    {{ status.ingest.malformed }} unparseable lines.<br>
+    {% if status.clustering %}Last clustering run: {{ status.clustering }}{% endif %}
+  </p>
+</div>
+
+<h2>Decoders seen this session</h2>
+<div class="panel scroll">
+  {% if status.decoders %}
+  <table>
+    <thead><tr><th>Decoder</th><th class="num">Readings</th></tr></thead>
+    <tbody>
+      {% for model, count in status.decoders.items() %}
+      <tr><td class="mono">{{ model }}</td><td class="num">{{ count }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">No transmissions decoded since start-up.</div>
+  {% endif %}
+</div>
+{% endblock %}

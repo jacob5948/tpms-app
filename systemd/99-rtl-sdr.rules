@@ -1,0 +1,6 @@
+# Lets a non-root user (in group plugdev) claim the RTL-SDR dongle.
+# Install to /etc/udev/rules.d/99-rtl-sdr.rules then:
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2832", GROUP="plugdev", MODE="0666"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", GROUP="plugdev", MODE="0666"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2834", GROUP="plugdev", MODE="0666"

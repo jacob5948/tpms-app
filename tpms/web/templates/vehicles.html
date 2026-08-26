@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Vehicles &middot; TPMS{% endblock %}
+{% block body %}
+<div class="row">
+  <div>
+    <h1>Vehicles</h1>
+    <p class="sub">Sensor IDs grouped by repeatedly being heard together.</p>
+  </div>
+  <form class="inline right" method="post" action="/api/recluster">
+    <button class="primary" type="submit">Re-run clustering</button>
+  </form>
+</div>
+
+{% if vehicles %}
+<div class="grid">
+  {% for v in vehicles %}
+  <div class="card {{ 'review' if v.needs_review }}">
+    <h3>
+      <a href="/vehicles/{{ v.pk }}">{{ v.name }}</a>
+      {% if v.present %}<span class="pill live"><span class="dot live"></span>heard now</span>{% endif %}
+    </h3>
+    <div class="meta">
+      {{ v.sensor_count }} sensor{{ '' if v.sensor_count == 1 else 's' }} &middot;
+      {{ v.appearances }} appearance{{ '' if v.appearances == 1 else 's' }} &middot;
+      last heard {{ v.last_seen | ago }}
+      {% if not v.named %} &middot; <span class="pill">auto</span>{% endif %}
+    </div>
+    {% if v.needs_review %}
+    <div class="note">
+      {{ v.sensor_count }} sensors clustered together &mdash; more than one
+      vehicle's worth. Most likely two vehicles that always travel together.
+      Split them on the detail page.
+    </div>
+    {% endif %}
+    <div class="wheels">
+      {% for s in v.sensors %}
+      <div class="wheel">
+        <div class="id">{{ s.wheel_label or s.sensor_id }}</div>
+        <div class="val">{{ '%.1f psi' % s.pressure_psi if s.pressure_psi is not none else '-' }}</div>
+        <div class="id">
+          {% if s.temperature_c is not none %}{{ '%.0f' % s.temperature_c }}&deg;C{% endif %}
+          {% if s.battery_ok == 0 %}<span class="pill warn">battery low</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="panel"><div class="empty">
+  No vehicles correlated yet. Sensors must be heard together across several
+  separate passes before they cluster.
+</div></div>
+{% endif %}
+
+{% if unassigned %}
+<h2>Unassigned sensors ({{ unassigned | length }})</h2>
+<p class="sub">Heard, but not yet tied to a vehicle with enough confidence.</p>
+<div class="panel scroll">
+  <table>
+    <thead><tr><th>Sensor</th><th class="num">Readings</th><th>First heard</th><th>Last heard</th></tr></thead>
+    <tbody>
+      {% for s in unassigned %}
+      <tr>
+        <td class="mono">{{ s.display }}</td>
+        <td class="num">{{ s.reading_count }}</td>
+        <td>{{ s.first_seen | ago }}</td>
+        <td>{{ s.last_seen | ago }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

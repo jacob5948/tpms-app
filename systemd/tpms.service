@@ -1,0 +1,39 @@
+# Install to /etc/systemd/system/tpms.service, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now tpms
+[Unit]
+Description=TPMS capture, logging and vehicle correlation
+Documentation=file:/opt/tpms/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tpms
+Group=plugdev
+WorkingDirectory=/opt/tpms
+ExecStart=/opt/tpms/.venv/bin/tpms --config /opt/tpms/config.yaml serve
+
+# The supervisor already restarts rtl_433 itself; this covers the Python
+# process dying, which should be rare.
+Restart=always
+RestartSec=5
+
+# Journald gets our logs; rtl_433's own stderr is folded in at debug level.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tpms
+
+# The service needs USB (the dongle) and its own state directory, nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/tpms
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

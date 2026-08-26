@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+config.yaml
+*.db
+*.db-wal
+*.db-shm
+raw/
+synthetic.jsonl
+.pytest_cache/
+*.egg-info/

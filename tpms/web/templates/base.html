@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}TPMS{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#128663;</text></svg>">
+</head>
+<body>
+<header class="top">
+  <span class="brand">TPMS watch</span>
+  <nav>
+    <a href="/"         class="{{ 'active' if nav == 'live' }}">Live</a>
+    <a href="/vehicles" class="{{ 'active' if nav == 'vehicles' }}">Vehicles</a>
+    <a href="/sensors"  class="{{ 'active' if nav == 'sensors' }}">Sensors</a>
+    <a href="/events"   class="{{ 'active' if nav == 'events' }}">Events</a>
+    <a href="/status"   class="{{ 'active' if nav == 'status' }}">Status</a>
+  </nav>
+  <span class="spacer"></span>
+  <span class="pill" id="conn"><span class="dot off"></span>offline</span>
+</header>
+<main>{% block body %}{% endblock %}</main>
+<script>
+// Shared SSE connection. Pages opt in by defining window.onTpmsEvent.
+(function () {
+  const pill = document.getElementById('conn');
+  function setState(live, text) {
+    pill.className = 'pill' + (live ? ' live' : '');
+    pill.innerHTML = '<span class="dot ' + (live ? 'live' : 'off') + '"></span>' + text;
+  }
+  let source;
+  function connect() {
+    source = new EventSource('/api/stream');
+    source.onopen = () => setState(true, 'listening');
+    source.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (window.onTpmsEvent) window.onTpmsEvent(data);
+    };
+    source.onerror = () => {
+      setState(false, 'reconnecting');
+      source.close();
+      setTimeout(connect, 3000);
+    };
+  }
+  connect();
+})();
+
+function relTime(ts) {
+  const d = Date.now() / 1000 - ts;
+  if (d < 90) return Math.max(0, Math.round(d)) + 's ago';
+  if (d < 5400) return Math.round(d / 60) + 'm ago';
+  if (d < 172800) return Math.round(d / 3600) + 'h ago';
+  return Math.round(d / 86400) + 'd ago';
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

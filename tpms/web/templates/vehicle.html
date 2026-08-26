@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}{{ vehicle.display }} &middot; TPMS{% endblock %}
+{% block body %}
+<p class="sub"><a href="/vehicles">&larr; All vehicles</a></p>
+<h1>{{ vehicle.display }}</h1>
+<p class="sub">
+  {{ sensors | length }} sensor{{ '' if sensors | length == 1 else 's' }} &middot;
+  {{ intervals | length }} appearance{{ '' if intervals | length == 1 else 's' }} &middot;
+  {{ 'auto-clustered' if vehicle.auto_generated else 'manually curated' }}
+</p>
+
+{% if vehicle.needs_review %}
+<div class="note">
+  This cluster holds {{ sensors | length }} sensors &mdash; more than a single
+  vehicle normally carries. Two vehicles that always travel together are
+  indistinguishable by co-occurrence alone, so this may need splitting.
+  <form class="inline" method="post" action="/api/vehicles/{{ vehicle.pk }}/review-cleared">
+    <button type="submit">It's correct, clear the flag</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="panel">
+  <form class="row" method="post" action="/api/vehicles/{{ vehicle.pk }}">
+    <input type="text" name="name" placeholder="Name this vehicle" value="{{ vehicle.name or '' }}" style="min-width:230px">
+    <input type="text" name="notes" placeholder="Notes" value="{{ vehicle.notes or '' }}" style="flex:1;min-width:200px">
+    <button class="primary" type="submit">Save</button>
+  </form>
+  <p class="sub" style="margin:10px 0 0">
+    Naming a vehicle marks it as manually curated; the clusterer will no longer
+    reshape it.
+  </p>
+</div>
+
+<h2>Sensors</h2>
+<div class="panel scroll">
+  <table>
+    <thead><tr>
+      <th>Sensor</th><th>Wheel</th><th class="num">psi</th><th class="num">&deg;C</th>
+      <th>Battery</th><th class="num">Readings</th><th>Last heard</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for s in sensors %}
+      <tr>
+        <td class="mono">{{ s.display }}{% if s.pinned %} <span class="pill">pinned</span>{% endif %}</td>
+        <td>
+          <form class="inline" method="post" action="/api/sensors/{{ s.pk }}">
+            <input type="text" name="wheel_label" value="{{ s.wheel_label or '' }}" placeholder="e.g. FL" size="6">
+            <button type="submit">Set</button>
+          </form>
+        </td>
+        <td class="num">{{ '%.1f' % s.pressure_psi if s.pressure_psi is not none else '-' }}</td>
+        <td class="num">{{ '%.1f' % s.temperature_c if s.temperature_c is not none else '-' }}</td>
+        <td>{% if s.battery_ok == 0 %}<span class="pill warn">low</span>{% elif s.battery_ok == 1 %}ok{% else %}-{% endif %}</td>
+        <td class="num">{{ s.reading_count }}</td>
+        <td>{{ s.last_seen | ago }}</td>
+        <td>
+          <form class="inline" method="post" action="/api/sensors/{{ s.pk }}">
+            <select name="vehicle_id">
+              <option value="{{ vehicle.pk }}">stay here</option>
+              <option value="new">split to new vehicle</option>
+              <option value="none">unassign</option>
+              {% for other in all_vehicles %}
+              <option value="{{ other.pk }}">move to {{ other.display }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit">Apply</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if all_vehicles %}
+<div class="panel">
+  <form class="row" method="post" action="/api/vehicles/{{ vehicle.pk }}/merge">
+    <strong style="font-size:14px">Merge another vehicle into this one</strong>
+    <select name="other">
+      {% for other in all_vehicles %}<option value="{{ other.pk }}">{{ other.display }}</option>{% endfor %}
+    </select>
+    <button type="submit">Merge</button>
+  </form>
+</div>
+{% endif %}
+
+<h2>Pressure history</h2>
+<div class="panel">
+  {% set series = history.values() | select | list %}
+  {% if series | map('length') | sum > 1 %}
+    {{ chart | default('') }}
+    <div id="chart"></div>
+    <script id="chart-data" type="application/json">
+      {{ history | tojson }}
+    </script>
+    <script>
+      (function () {
+        const data = JSON.parse(document.getElementById('chart-data').textContent);
+        const labels = {{ sensors | map(attribute='pk') | list | tojson }};
+        const names = {{ sensors | map(attribute='display') | list | tojson }};
+        const points = [];
+        Object.entries(data).forEach(([pk, rows]) =>
+          rows.forEach(r => points.push({ pk, ts: r.ts, psi: r.pressure_psi })));
+        if (!points.length) return;
+
+        const W = 900, H = 220, PAD = 38;
+        const xs = points.map(p => p.ts), ys = points.map(p => p.psi);
+        const x0 = Math.min(...xs), x1 = Math.max(...xs);
+        const y0 = Math.min(...ys) - 1, y1 = Math.max(...ys) + 1;
+        const sx = t => PAD + (x1 === x0 ? 0 : (t - x0) / (x1 - x0)) * (W - PAD * 2);
+        const sy = v => H - PAD - (y1 === y0 ? 0 : (v - y0) / (y1 - y0)) * (H - PAD * 2);
+        const colors = ['#4d8bf5', '#3fb950', '#f0b849', '#f85149', '#a371f7', '#39c5cf'];
+
+        let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" ' +
+                  'aria-label="Tyre pressure over time" style="overflow:visible">';
+        [0, 0.5, 1].forEach(f => {
+          const v = y0 + (y1 - y0) * f, y = sy(v);
+          svg += '<line x1="' + PAD + '" x2="' + (W - PAD) + '" y1="' + y + '" y2="' + y +
+                 '" stroke="currentColor" stroke-opacity="0.15"/>' +
+                 '<text x="4" y="' + (y + 4) + '" font-size="11" fill="currentColor" ' +
+                 'fill-opacity="0.55">' + v.toFixed(0) + '</text>';
+        });
+        labels.forEach((pk, i) => {
+          const rows = (data[pk] || []).slice().sort((a, b) => a.ts - b.ts);
+          if (rows.length < 2) return;
+          const d = rows.map((r, j) => (j ? 'L' : 'M') + sx(r.ts).toFixed(1) + ' ' + sy(r.pressure_psi).toFixed(1)).join(' ');
+          svg += '<path d="' + d + '" fill="none" stroke="' + colors[i % colors.length] +
+                 '" stroke-width="1.6" stroke-linejoin="round"/>';
+        });
+        svg += '</svg>';
+
+        const legend = names.map((n, i) =>
+          '<span class="pill" style="color:' + colors[i % colors.length] + '">' + n + '</span>').join(' ');
+        document.getElementById('chart').innerHTML =
+          svg + '<div class="row" style="margin-top:10px">' + legend + '</div>' +
+          '<p class="sub" style="margin:8px 0 0">psi per sensor, oldest to newest reading.</p>';
+      })();
+    </script>
+  {% else %}
+  <div class="empty">Not enough readings yet to plot.</div>
+  {% endif %}
+</div>
+
+<h2>Appearances</h2>
+<p class="sub">Merged across all wheels: from the first wheel heard to the last.</p>
+<div class="panel">
+  {% if intervals %}
+  <div class="scroll"><table>
+    <thead><tr><th>First heard</th><th>Last heard</th><th class="num">Duration</th><th class="num">Wheels</th><th class="num">Readings</th></tr></thead>
+    <tbody>
+      {% for i in intervals %}
+      <tr>
+        <td>{{ i.started_at | iso }}</td>
+        <td>{% if i.open %}<span class="pill live">still audible</span>{% else %}{{ i.ended_at | iso }}{% endif %}</td>
+        <td class="num">{{ i.duration | duration }}</td>
+        <td class="num">{{ i.sensor_count }}</td>
+        <td class="num">{{ i.reading_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <div class="empty">No appearances recorded.</div>
+  {% endif %}
+</div>
+{% endblock %}
