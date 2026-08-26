@@ -245,8 +245,14 @@ def test_child_runs_in_its_own_process_group(tmp_path):
     script = tmp_path / "rtl_433"
     script.write_text(
         "#!/bin/sh\n"
-        'if [ "$1" = "-R" ] && [ "$2" = "help" ]; then echo "  [88] Toyota TPMS"; exit 0; fi\n'
-        'if [ "$1" = "-F" ] && [ "$2" = "help" ]; then echo "  [-F log|kv|json]"; exit 0; fi\n'
+        'if [ "$2" = "help" ]; then\n'
+        '  case "$1" in\n'
+        '    -R) echo "  [88] Toyota TPMS" ;;\n'
+        '    -F) echo "  [-F log|kv|json]" ;;\n'
+        '    -M) echo "  Use \\"time:usec\\" to add microseconds." ;;\n'
+        '  esac\n'
+        '  exit 0\n'
+        'fi\n'
         "sleep 30\n"
     )
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
@@ -277,3 +283,38 @@ def test_stop_is_idempotent():
     time.sleep(0.3)
     supervisor.stop()
     supervisor.stop()  # must not raise
+
+
+def test_microsecond_flag_is_probed_not_assumed(tmp_path):
+    """`-M time:utc:usec` must be one combined spec, and older builds lack it.
+
+    A rejected argument makes rtl_433 print usage and exit, which crash-loops
+    the supervisor -- the same failure mode as the hardcoded protocol numbers.
+    """
+    from tpms.radio import supports_microsecond_time
+
+    modern = tmp_path / "modern"
+    modern.write_text('#!/bin/sh\necho \'  Use "time:usec" to add microseconds.\'\n')
+    modern.chmod(modern.stat().st_mode | stat.S_IEXEC)
+
+    ancient = tmp_path / "ancient"
+    ancient.write_text("#!/bin/sh\necho '  Use \"time:rel\" for sample position.'\n")
+    ancient.chmod(ancient.stat().st_mode | stat.S_IEXEC)
+
+    assert supports_microsecond_time(str(modern))
+    assert not supports_microsecond_time(str(ancient))
+    assert not supports_microsecond_time("definitely-not-installed-xyz")
+
+
+def test_time_options_are_never_combined_illegally():
+    """`-M utc` alongside `-M time:usec` is rejected by rtl_433."""
+    from tpms.config import RadioConfig
+    from tpms.radio import build_command
+
+    with_usec = build_command(RadioConfig(), protocols=[88], microseconds=True)
+    assert "time:utc:usec" in with_usec
+    assert "utc" not in with_usec, "the bare -M utc must be replaced, not added to"
+
+    without = build_command(RadioConfig(), protocols=[88], microseconds=False)
+    assert "utc" in without
+    assert not any("usec" in arg for arg in without)

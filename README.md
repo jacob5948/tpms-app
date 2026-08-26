@@ -103,10 +103,19 @@ protocol names — `Jansite/6cd2eb3` and `Ford/6cd2eb33`, `Jansite/c20f14d` and
 `Citroen/0f14dbd2`. Left alone these phantoms inflate the sensor list and, since
 they co-occur perfectly by construction, cluster into vehicles that do not exist.
 
-They are found by signal level: rtl_433 reports RSSI and SNR per burst, so two
-decoders parsing the *same* burst report byte-identical values at the same
-instant, while two real transmitters — even two wheels on one car — essentially
-never do. Duplicates are folded into one canonical sensor before clustering runs.
+Two things identify them. First, only *different* decoders are ever merged:
+wheels on one car share an OEM sensor type, so a same-decoder pair is two real
+sensors, never one seen twice. Second, signal level — rtl_433 reports RSSI and
+SNR per burst, and two decoders parsing the same burst report near-identical
+values at the same instant. Near, not identical: they trigger on slightly
+different sample ranges, so one burst may read -8.1 to one decoder and -8.4 to
+another, and `aliases.rssi_tolerance` allows for that.
+
+Where rtl_433 supports it, capture also requests microsecond timestamps
+(`-M time:utc:usec`), which pins two decodes of one burst together far more
+tightly than whole seconds can.
+
+Duplicates are folded into one canonical sensor before clustering.
 `tpms aliases` lists what was merged.
 
 ### Vehicles seen only once

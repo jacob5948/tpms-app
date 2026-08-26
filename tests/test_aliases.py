@@ -168,3 +168,57 @@ def test_threshold_can_demand_repeated_evidence(ingestor, db):
 )
 def test_common_hex_run(a, b, expected):
     assert common_hex_run(a, b) == expected
+
+
+# --- tolerances -----------------------------------------------------------
+#
+# Exact RSSI equality was too strict against real captures: decoders trigger
+# on slightly different sample ranges, so one burst is reported as -8.1 by one
+# decoder and -8.4 by another. Requiring equality found nothing at all.
+
+
+def test_small_level_differences_still_count_as_one_burst(ingestor, db):
+    ingestor.handle_object({"time": "2026-08-26 02:27:37", "model": "Jansite",
+                            "type": "TPMS", "id": "6cd2eb3", "rssi": -8.1, "snr": 12.3})
+    ingestor.handle_object({"time": "2026-08-26 02:27:37", "model": "Ford",
+                            "type": "TPMS", "id": "6cd2eb33", "rssi": -8.4, "snr": 12.6})
+    AliasDetector(db).run()
+    assert len(_canonical(db)) == 1
+
+
+def test_level_difference_beyond_tolerance_is_two_sensors(ingestor, db):
+    ingestor.handle_object({"time": "2026-08-26 02:27:37", "model": "Jansite",
+                            "type": "TPMS", "id": "aaa", "rssi": -8.1, "snr": 12.0})
+    ingestor.handle_object({"time": "2026-08-26 02:27:37", "model": "Ford",
+                            "type": "TPMS", "id": "bbb", "rssi": -14.0, "snr": 12.0})
+    AliasDetector(db).run()
+    assert len(_canonical(db)) == 2
+
+
+def test_same_decoder_is_never_a_duplicate(ingestor, db):
+    """Two wheels share an OEM sensor type, so a same-decoder pair is always
+    two real sensors -- even when they happen to read the same level."""
+    for sensor_id in ("d39abf13", "d39abf5a"):
+        ingestor.handle_object({"time": "2026-08-26 02:22:13", "model": "Toyota",
+                                "type": "TPMS", "id": sensor_id, "rssi": -4.6, "snr": 16.0})
+    AliasDetector(db).run()
+    assert len(_canonical(db)) == 2
+
+
+def test_the_pi_capture(ingestor, db):
+    """The real capture that found nothing under the old exact-match rule."""
+    bursts = [
+        ("02:33:59", -2.2, -2.2, 15.0, ("Jansite", "20c728a"), ("Hyundai-VDO", "c728ad2d")),
+        ("02:32:57", -6.8, -6.9, 11.0, ("Jansite", "3041aaa"), ("Hyundai-VDO", "41aaafcb")),
+        ("02:27:37", -8.1, -8.4, 12.3, ("Jansite", "6cd2eb3"), ("Ford", "6cd2eb33")),
+        ("02:27:21", -5.8, -5.8, 13.0, ("Jansite", "356ba38"), ("Ford", "356ba38f")),
+        ("02:22:36", -8.1, -8.1, 11.1, ("Jansite", "c20f14d"), ("Citroen", "0f14dbd2")),
+    ]
+    for when, rssi_a, rssi_b, snr, first, second in bursts:
+        for (model, sensor_id), rssi in zip((first, second), (rssi_a, rssi_b)):
+            ingestor.handle_object({"time": f"2026-08-26 {when}", "model": model,
+                                    "type": "TPMS", "id": sensor_id,
+                                    "rssi": rssi, "snr": snr})
+    report = AliasDetector(db).run()
+    assert len(report.groups) == 5
+    assert len(_canonical(db)) == 5, "ten decodes are really five transmitters"

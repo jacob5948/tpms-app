@@ -54,7 +54,16 @@ aliases:
   # protocol names and IDs. They are identified by an identical signal level
   # at the identical instant -- two decoders parsing the same burst report
   # byte-identical RSSI and SNR; two real transmitters essentially never do.
+  # Not exact equality: decoders trigger on slightly different sample ranges,
+  # so one burst is commonly reported as -8.1 by one and -8.4 by another.
   time_tolerance: 2.0
+  rssi_tolerance: 1.5
+  snr_tolerance: 3.0
+
+  # Only ever merge *different* decoders. Wheels on one car share an OEM
+  # sensor type, so a same-decoder pair is two real sensors, never one twice.
+  require_different_decoder: true
+
   min_shared_bursts: 1
   min_share_ratio: 0.5
   auto_interval_seconds: 300

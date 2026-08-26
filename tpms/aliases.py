@@ -32,6 +32,8 @@ class AliasPair:
     shared: int
     ratio: float
     common_id: str = ""
+    rssi_delta: float | None = None
+    time_delta: float | None = None
 
 
 @dataclass
@@ -74,20 +76,26 @@ class AliasDetector:
 
     def find_pairs(self) -> list[AliasPair]:
         """Sensor pairs that keep decoding the very same bursts."""
-        tolerance = self.config.time_tolerance
+        cfg = self.config
+        decoder_clause = "AND sa.model != sb.model" if cfg.require_different_decoder else ""
         rows = self.db.query(
-            """
-            SELECT a.sensor_pk AS a, b.sensor_pk AS b, COUNT(*) AS shared
+            f"""
+            SELECT a.sensor_pk AS a, b.sensor_pk AS b, COUNT(*) AS shared,
+                   MIN(ABS(a.rssi - b.rssi)) AS rssi_delta,
+                   MIN(ABS(a.ts - b.ts))     AS time_delta
               FROM readings a
               JOIN readings b
                 ON b.sensor_pk > a.sensor_pk
                AND b.ts BETWEEN a.ts - ? AND a.ts + ?
                AND a.rssi IS NOT NULL AND b.rssi IS NOT NULL
-               AND a.rssi = b.rssi
-               AND ((a.snr IS NULL AND b.snr IS NULL) OR a.snr = b.snr)
+               AND ABS(a.rssi - b.rssi) <= ?
+               AND (a.snr IS NULL OR b.snr IS NULL OR ABS(a.snr - b.snr) <= ?)
+              JOIN sensors sa ON sa.pk = a.sensor_pk
+              JOIN sensors sb ON sb.pk = b.sensor_pk
+             WHERE 1=1 {decoder_clause}
              GROUP BY a.sensor_pk, b.sensor_pk
             """,
-            (tolerance, tolerance),
+            (cfg.time_tolerance, cfg.time_tolerance, cfg.rssi_tolerance, cfg.snr_tolerance),
         )
         if not rows:
             return []
@@ -118,6 +126,8 @@ class AliasDetector:
                     )
                     if a in sensors and b in sensors
                     else "",
+                    rssi_delta=row["rssi_delta"],
+                    time_delta=row["time_delta"],
                 )
             )
         return pairs

@@ -27,13 +27,21 @@ def build_command(
     config: RadioConfig,
     protocols: list[int] | None = None,
     log_output: bool = False,
+    microseconds: bool = False,
 ) -> list[str]:
     """Assemble the rtl_433 command line.
 
     ``-M utc`` is not optional: without it rtl_433 stamps readings in local
     time with no offset, which is unusable across DST boundaries.
     """
-    cmd = [config.binary, "-F", "json", "-M", "utc", "-M", "level", "-M", "protocol"]
+    # Microseconds matter for duplicate-decode detection: two decoders parsing
+    # one burst share a timestamp far more precisely than whole seconds can
+    # express. Older builds lack the option, hence the probe.
+    time_spec = "time:utc:usec" if microseconds else "utc"
+    cmd = [
+        config.binary, "-F", "json",
+        "-M", time_spec, "-M", "level", "-M", "protocol",
+    ]
 
     # Route rtl_433's own diagnostics to stderr, keeping stdout pure JSON.
     # Without this, modern builds report failures nowhere at all.
@@ -185,6 +193,22 @@ def supports_log_output(binary: str) -> bool:
     return "-f log" in text or "log|kv" in text
 
 
+def supports_microsecond_time(binary: str) -> bool:
+    """Whether this rtl_433 accepts `-M time:utc:usec`.
+
+    Note the option must be spelled as one combined spec: passing `-M utc`
+    alongside `-M time:usec` is rejected, and a rejected argument makes
+    rtl_433 print its usage and exit, which crash-loops the supervisor.
+    """
+    try:
+        result = subprocess.run(
+            [binary, "-M", "help"], capture_output=True, text=True, timeout=15
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "usec" in ((result.stdout or "") + (result.stderr or "")).lower()
+
+
 @dataclass
 class RadioStatus:
     running: bool = False
@@ -221,6 +245,7 @@ class RadioSupervisor:
         self._stderr_tail: collections.deque[str] = collections.deque(maxlen=12)
         self._protocols: list[int] | None = None
         self._log_output: bool | None = None
+        self._microseconds: bool | None = None
 
     # -- lifecycle --------------------------------------------------------
 
@@ -311,9 +336,23 @@ class RadioSupervisor:
                 log.debug("%s has no -F log; relying on its stderr", self.config.binary)
         return self._log_output
 
+    def _wants_microseconds(self) -> bool:
+        if self._microseconds is None:
+            self._microseconds = supports_microsecond_time(self.config.binary)
+            if not self._microseconds:
+                log.info(
+                    "%s has no microsecond timestamps; duplicate-decode "
+                    "detection will rely on signal level alone",
+                    self.config.binary,
+                )
+        return self._microseconds
+
     def _pump(self) -> None:
         cmd = build_command(
-            self.config, self._protocol_args(), self._wants_log_output()
+            self.config,
+            self._protocol_args(),
+            self._wants_log_output(),
+            self._wants_microseconds(),
         )
         self.status.command = cmd
         log.info("starting: %s", " ".join(cmd))

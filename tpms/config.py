@@ -44,6 +44,9 @@ DEFAULTS: dict[str, Any] = {
     },
     "aliases": {
         "time_tolerance": 2.0,
+        "rssi_tolerance": 1.5,
+        "snr_tolerance": 3.0,
+        "require_different_decoder": True,
         "min_shared_bursts": 1,
         "min_share_ratio": 0.5,
         "auto_interval_seconds": 300,
@@ -90,8 +93,20 @@ class SessionConfig:
 class AliasConfig:
     """Detection of one transmitter decoded by several protocols."""
 
-    #: Readings this far apart can still be the same burst.
+    #: Readings this far apart can still be the same burst. rtl_433 stamps to
+    #: the second unless -M time:usec is in play, so the same burst can land
+    #: either side of a second boundary.
     time_tolerance: float = 2.0
+    #: How far apart, in dB, two decoders may measure the same burst. Not zero:
+    #: decoders trigger on slightly different sample ranges, so one real burst
+    #: is commonly reported as -8.1 by one and -8.4 by another.
+    rssi_tolerance: float = 1.5
+    #: Same, for SNR. Ignored when either reading lacks it.
+    snr_tolerance: float = 3.0
+    #: Only ever treat *different* decoders as duplicates. Wheels on one car
+    #: share an OEM sensor type, so a same-decoder pair is a real pair of
+    #: sensors, never one sensor seen twice.
+    require_different_decoder: bool = True
     #: Identical-signal bursts needed before two sensors are called duplicates.
     #: One is enough: matching RSSI *and* SNR at the same instant is already a
     #: strong fingerprint, and most vehicles are only ever heard once.
