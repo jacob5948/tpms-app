@@ -326,6 +326,11 @@ class RadioSupervisor:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            # Detach from our process group. Otherwise Ctrl+C at the terminal
+            # goes to rtl_433 as well, it dies, and the supervisor dutifully
+            # restarts it -- so the program appears unkillable. With this, the
+            # child only ever stops because we told it to.
+            start_new_session=True,
         )
         self._process = process
         self.status.running = True

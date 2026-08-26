@@ -49,14 +49,17 @@ def cmd_serve(args: argparse.Namespace) -> int:
     service = Service(config, start_radio=not args.no_radio)
     app = create_app(service)
 
-    service.start()
     if args.no_radio:
         log.warning("radio disabled; serving stored data only")
     log.info("web UI on http://%s:%s", config.web.host, config.web.port)
+    log.info("press Ctrl+C to stop")
+
+    # The service is started and stopped by the app's lifespan, so shutdown
+    # runs as part of uvicorn's own sequence rather than after it returns.
     try:
         uvicorn.run(app, host=config.web.host, port=config.web.port, log_level="warning")
     finally:
-        service.stop()
+        service.stop()  # belt and braces if uvicorn never reached lifespan
     return 0
 
 

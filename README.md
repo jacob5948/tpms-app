@@ -147,6 +147,17 @@ journalctl -u tpms -f
 
 Set `web.host: 0.0.0.0` to reach the UI from elsewhere on the LAN.
 
+## Stopping it
+
+`Ctrl+C` in the terminal, or `sudo systemctl stop tpms` under systemd. Note the
+unit file sets `Restart=always`, so killing the process on the Pi just brings it
+back — use `systemctl stop`.
+
+rtl_433 runs in its own process group, so Ctrl+C reaches only this program,
+which then shuts the receiver down deliberately. Nothing is lost on exit:
+readings are committed as they arrive, and open sightings close at their last
+reading on the next start.
+
 ## Troubleshooting
 
 **"rtl_433 exited; restarting in Ns".** The log prints rtl_433's own output

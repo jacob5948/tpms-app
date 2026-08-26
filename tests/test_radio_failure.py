@@ -229,3 +229,51 @@ def test_log_flag_omitted_for_builds_without_it():
 
     cmd = build_command(RadioConfig(), protocols=[88], log_output=False)
     assert not any("log" in arg for arg in cmd)
+
+
+# --- signal isolation -----------------------------------------------------
+
+
+def test_child_runs_in_its_own_process_group(tmp_path):
+    """Ctrl+C must not reach rtl_433 directly.
+
+    The terminal sends SIGINT to the whole foreground process group. If the
+    child is in it, rtl_433 dies on Ctrl+C, the supervisor sees an unexpected
+    exit and restarts it -- so the program looks unkillable. Detaching the
+    child means it only ever stops when we stop it.
+    """
+    script = tmp_path / "rtl_433"
+    script.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = "-R" ] && [ "$2" = "help" ]; then echo "  [88] Toyota TPMS"; exit 0; fi\n'
+        'if [ "$1" = "-F" ] && [ "$2" = "help" ]; then echo "  [-F log|kv|json]"; exit 0; fi\n'
+        "sleep 30\n"
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+
+    supervisor = RadioSupervisor(
+        RadioConfig(binary=str(script)), on_line=lambda line: None
+    )
+    supervisor.start()
+    deadline = time.time() + 5
+    while supervisor.status.pid is None and time.time() < deadline:
+        time.sleep(0.05)
+    pid = supervisor.status.pid
+    assert pid is not None, "child never started"
+
+    try:
+        assert os.getpgid(pid) != os.getpgid(0)
+    finally:
+        supervisor.stop()
+
+
+def test_stop_is_idempotent():
+    """cmd_serve stops the service via lifespan and again in a finally."""
+    supervisor = RadioSupervisor(
+        RadioConfig(binary="definitely-not-installed-xyz", restart_max_delay=0.1),
+        on_line=lambda line: None,
+    )
+    supervisor.start()
+    time.sleep(0.3)
+    supervisor.stop()
+    supervisor.stop()  # must not raise

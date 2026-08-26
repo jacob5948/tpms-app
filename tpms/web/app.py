@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import csv
 import io
 import json
@@ -51,7 +52,23 @@ def _fmt_ago(ts: float | None) -> str:
 
 
 def create_app(service: Service) -> FastAPI:
-    app = FastAPI(title="TPMS", docs_url=None, redoc_url=None)
+    # Set on shutdown so the SSE generators return promptly. Without it,
+    # uvicorn's graceful shutdown blocks on those never-ending responses and
+    # the receiver keeps running long after Ctrl+C.
+    shutting_down = asyncio.Event()
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_: FastAPI):
+        service.start()
+        try:
+            yield
+        finally:
+            # Order matters: release the streams, then stop the radio and the
+            # background threads, all before uvicorn finishes shutting down.
+            shutting_down.set()
+            service.stop()
+
+    app = FastAPI(title="TPMS", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     templates.env.filters["duration"] = _fmt_duration
@@ -163,18 +180,28 @@ def create_app(service: Service) -> FastAPI:
         unsubscribe = service.ingestor.subscribe(on_event)
 
         async def generate():
+            stopping = asyncio.ensure_future(shutting_down.wait())
             try:
                 yield ": connected\n\n"
-                while True:
+                while not shutting_down.is_set():
                     if await request.is_disconnected():
                         break
-                    try:
-                        event = await asyncio.wait_for(queue.get(), timeout=15)
-                    except asyncio.TimeoutError:
+                    nxt = asyncio.ensure_future(queue.get())
+                    done, _ = await asyncio.wait(
+                        {nxt, stopping},
+                        timeout=15,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if stopping in done:
+                        nxt.cancel()
+                        break
+                    if nxt in done:
+                        yield f"data: {json.dumps(nxt.result())}\n\n"
+                    else:
+                        nxt.cancel()
                         yield ": keepalive\n\n"  # keeps proxies from timing out
-                        continue
-                    yield f"data: {json.dumps(event)}\n\n"
             finally:
+                stopping.cancel()
                 unsubscribe()
 
         return StreamingResponse(
