@@ -133,17 +133,59 @@ normalization bug can never lose data — re-import with `tpms replay`.
 ## Deploying to a Pi
 
 ```bash
-sudo useradd -r -G plugdev -d /opt/tpms tpms
-sudo mkdir -p /opt/tpms && sudo chown tpms:plugdev /opt/tpms
-# copy the project to /opt/tpms, create the venv, write config.yaml
-
-sudo cp systemd/99-rtl-sdr.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules && sudo udevadm trigger
-
-sudo cp systemd/tpms.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now tpms
-journalctl -u tpms -f
+git clone https://github.com/jacob5948/tpms-app.git
+cd tpms-app
+sudo ./scripts/install-pi.sh
 ```
+
+The script is idempotent — re-run it to upgrade, and it leaves your
+`config.yaml`, database and raw archive alone. It installs `rtl-433` and
+`rtl-sdr`, blacklists the DVB-T kernel driver, installs the udev rules,
+creates a `tpms` service user, builds the venv under `/opt/tpms`, and enables
+the systemd unit. When it finishes it prints the URL and the log command.
+
+**Reboot afterwards if the DVB driver was already loaded** — it cannot always
+be unloaded from under a device that is in use.
+
+Then edit `/opt/tpms/config.yaml` (frequency, gain, port) and
+`sudo systemctl restart tpms`.
+
+### A word on the packaged rtl_433 version
+
+`apt install rtl-433` gives you whatever your Debian release pinned:
+
+| Release | Version |
+| --- | --- |
+| Pi OS 12 / bookworm | **22.11** (from 2022) |
+| Pi OS 13 / trixie | 25.02 |
+| upstream current | 26.07 |
+
+This matters because **TPMS decoders are added continuously** — an old build
+simply cannot decode some sensors, and its protocol numbers stop lower. The app
+handles that automatically (it asks your binary which protocols it supports
+rather than assuming), so an old build works fine; it just sees fewer vehicles.
+Builds up to 25.02 also carry CVE-2025-34450, a stack overflow in packet
+parsing — relevant here, since the input is radio traffic from strangers.
+
+For the widest decoder coverage, build from source:
+
+```bash
+sudo apt install -y libtool libusb-1.0-0-dev librtlsdr-dev rtl-sdr \
+                    build-essential cmake pkg-config
+git clone https://github.com/merbanan/rtl_433.git
+cd rtl_433 && mkdir build && cd build && cmake .. && make -j"$(nproc)"
+sudo make install
+```
+
+Then set `radio.binary` in `config.yaml` if it did not land on `PATH`.
+
+### Manual install
+
+If you would rather not run the script, it is short and readable — the steps
+are: install `rtl-433`, blacklist `dvb_usb_rtl28xxu`, copy
+`systemd/99-rtl-sdr.rules` to `/etc/udev/rules.d/`, create a service user in
+the `plugdev` group, build a venv, copy `systemd/tpms.service` to
+`/etc/systemd/system/`, then `systemctl enable --now tpms`.
 
 Set `web.host: 0.0.0.0` to reach the UI from elsewhere on the LAN.
 
