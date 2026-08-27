@@ -203,7 +203,10 @@ automatically, so your correction survives the next clustering run.
 - **Vehicles** — cards per vehicle with per-wheel pressure/temperature; detail
   pages with **comings and goings**, a pressure chart, appearance history, and
   rename/merge/split/pin.
-- **Sensors** — every transmitter heard, with manual assignment.
+- **Sensors** — every transmitter heard, with manual assignment. Sort by
+  **First heard**, or hit the **New today** tile, to see what turned up while
+  you were out: four transmitters first heard the minute you got home is
+  most of an identification.
 - **Sensor detail** — one page per transmitter: every reading field, its bands,
   its sightings, its duplicate decodes, the last raw packet, and **what it was
   heard alongside**. Every mention of a sensor anywhere links here, so no table

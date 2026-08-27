@@ -271,6 +271,11 @@ def resident_pks(db: Database, config: Any = None) -> set[int]:
     return Clusterer(db, config or ClusterConfig()).residents()
 
 
+# "New" answers "did anything turn up while I was out", not "is this sensor
+# young" -- so it is scoped to the last day rather than to the install date.
+NEW_WITHIN = 86400.0
+
+
 def sensor_row(
     db: Database,
     sensor_pk: int,
@@ -324,6 +329,7 @@ def sensor_row(
         "duty_cycle": duty,
         "resident": resident,
         "present": open_sighting is not None,
+        "new": (now_ts() - sensor.first_seen) < NEW_WITHIN,
     }
 
 

@@ -57,9 +57,10 @@ def test_range_controls_live_above_the_charts_they_scope(client):
         assert f'id="{holder}"' in client.get(path).text, path
 
 
-def test_the_sensors_table_stays_at_ten_columns(client):
-    """Eleven columns at 55 rows was the complaint; First heard lives on the
-    detail page."""
+def test_the_sensors_table_columns(client):
+    """First heard was cut from this table as on-demand detail, and came back:
+    "what turned up while I was out" is a question you ask of the whole list,
+    and you cannot ask it on a page that shows one sensor."""
     import re
 
     html = client.get("/sensors").text
@@ -68,7 +69,7 @@ def test_the_sensors_table_stays_at_ten_columns(client):
     headers = re.findall(r"<th(?:\s[^>]*)?>(.*?)</th>", head, re.S)
     assert [h.strip() for h in headers] == [
         "Sensor", "Vehicle", "Band", "psi", "&deg;C", "Battery",
-        "RSSI", "Readings", "Last heard", "",
+        "RSSI", "Readings", "First heard", "Last heard", "",
     ]
 
 
