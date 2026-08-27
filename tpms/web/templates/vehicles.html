@@ -12,17 +12,52 @@
   </form>
 </div>
 
+{#
+  The tiles are the review queue. Clustering guesses and flags what it is
+  unsure about; clicking "Needs review" or "Provisional" filters the grid to
+  exactly those, which is the worklist that used to be scattered across the
+  cards with no way to gather it.
+#}
 <div class="stats">
-  {{ m.stat('Vehicles', vehicles | length) }}
-  {{ m.stat('Heard now', vehicles | selectattr('present') | list | length) }}
-  {{ m.stat('Provisional', vehicles | selectattr('provisional') | list | length, 'seen once, unconfirmed') }}
-  {{ m.stat('Unassigned sensors', unassigned | length, 'no group yet') }}
+  {{ m.stat('Vehicles', vehicles | length, target='vehicle-grid') }}
+  {{ m.stat('Heard now', vehicles | selectattr('present') | list | length,
+            'click to filter', flag='present', target='vehicle-grid') }}
+  {{ m.stat('Needs review', vehicles | selectattr('needs_review') | list | length,
+            'clustering is unsure', flag='review', target='vehicle-grid') }}
+  {{ m.stat('Provisional', vehicles | selectattr('provisional') | list | length,
+            'seen once, unconfirmed', flag='provisional', target='vehicle-grid') }}
+  {{ m.stat('Unnamed', vehicles | rejectattr('named') | list | length,
+            'never curated', flag='unnamed', target='vehicle-grid') }}
 </div>
 
 {% if vehicles %}
-<div class="grid">
+<div class="panel filter-bar" data-filter-for="vehicle-grid">
+  <input type="search" placeholder="Search vehicles, names, notes, sensor IDs…"
+         aria-label="Search vehicles" size="34">
+  <label class="sr-only" for="vehicle-order">Order by</label>
+  <select id="vehicle-order" data-sort-for="vehicle-grid">
+    <option value="Seen:desc">Last heard, newest first</option>
+    <option value="Seen:asc">Last heard, oldest first</option>
+    <option value="Passes:desc">Most passes</option>
+    <option value="Sensors:desc">Most sensors</option>
+    <option value="Name:asc">Name, A&ndash;Z</option>
+  </select>
+  <span class="filter-count" hidden></span>
+  <button type="button" class="filter-clear">Clear</button>
+</div>
+
+<div class="grid" id="vehicle-grid" data-sortable-grid>
   {% for v in vehicles %}
-  <div class="card {{ 'review' if v.needs_review }}">
+  <div class="card {{ 'review' if v.needs_review }}"
+       data-filter-row
+       data-present="{{ 1 if v.present else 0 }}"
+       data-review="{{ 1 if v.needs_review else 0 }}"
+       data-provisional="{{ 1 if v.provisional else 0 }}"
+       data-unnamed="{{ 0 if v.named else 1 }}"
+       data-sort-seen="{{ v.last_seen or 0 }}"
+       data-sort-passes="{{ v.appearances }}"
+       data-sort-sensors="{{ v.sensor_count }}"
+       data-sort-name="{{ v.name }}">
     <h3>
       <a href="/vehicles/{{ v.pk }}">{{ v.name }}</a>
       {% if v.present %}<span class="pill live"><span class="dot live"></span>heard now</span>{% endif %}
@@ -30,10 +65,11 @@
     </h3>
     <div class="meta">
       {{ v.sensor_count }} sensor{{ '' if v.sensor_count == 1 else 's' }} &middot;
-      {{ v.appearances }} appearance{{ '' if v.appearances == 1 else 's' }} &middot;
-      last heard {{ v.last_seen | ago }}
+      <a class="quiet" href="/events?vehicle={{ v.pk }}">{{ v.appearances }} pass{{ '' if v.appearances == 1 else 'es' }}</a> &middot;
+      last heard <span title="{{ v.last_seen_iso }}">{{ v.last_seen | ago }}</span>
       {% if not v.named %} &middot; <span class="pill">auto</span>{% endif %}
     </div>
+    {% if v.notes %}<div class="meta notes">{{ v.notes }}</div>{% endif %}
     {% if v.provisional %}
     <div class="note">
       Grouped from a single pass: heard together once, sharing a decoder and a
@@ -50,7 +86,7 @@
         {{ v.sensor_count }} sensors clustered together &mdash; at or past what
         one vehicle carries. Most likely two vehicles that travel together.
       {% endif %}
-      Split them on the detail page.
+      <a href="/vehicles/{{ v.pk }}">Split them &rarr;</a>
     </div>
     {% endif %}
     <div class="wheels">
@@ -72,6 +108,7 @@
   </div>
   {% endfor %}
 </div>
+<div class="filter-empty empty" hidden>No vehicles match this filter.</div>
 {% else %}
 <div class="panel"><div class="empty">
   No vehicles correlated yet. Sensors must be heard together across several
@@ -86,26 +123,7 @@
   whose companions were too weak to decode on the same pass &mdash; open one to
   see what it <em>was</em> heard alongside and how close it came.
 </p>
-<div class="panel scroll">
-  <table>
-    <thead><tr>
-      <th>Sensor</th><th>Band</th><th class="num">psi</th><th class="num">&deg;C</th>
-      <th>Battery</th><th class="num">RSSI</th><th class="num">Readings</th><th>First heard</th><th>Last heard</th>
-    </tr></thead>
-    <tbody>
-      {% for s in unassigned %}
-      <tr>
-        <td>{{ m.sensor_cell(s) }}</td>
-        {{ m.band_cell(s.bands) }}
-        {{ m.reading_cells(s) }}
-        <td class="num">{{ s.reading_count }}</td>
-        <td title="{{ s.first_seen_iso }}" data-sort="{{ s.first_seen }}">{{ s.first_seen | ago }}</td>
-        <td title="{{ s.last_seen_iso }}" data-sort="{{ s.last_seen }}">{{ s.last_seen | ago }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+{{ m.sensor_table(unassigned, id='unassigned-rows', show_vehicle=false) }}
 {% else %}
 <div class="panel"><div class="empty">Every sensor heard is assigned to a vehicle.</div></div>
 {% endif %}

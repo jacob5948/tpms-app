@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import queries as q
-from ..models import now as now_ts, to_iso
+from ..models import now as now_ts, parse_when, to_iso
 from ..retention import human_bytes
 from ..service import Service
 
@@ -66,6 +66,29 @@ def _fmt_ago(ts: float | None) -> str:
     return f"{int(delta // 86400)}d ago"
 
 
+#: How many sightings the pass log will merge in one request. Passes are built
+#: in Python from the sightings underneath them, so this bounds the work; the
+#: page says so when it bites rather than silently showing a short day.
+PASS_SCAN_LIMIT = 20000
+
+
+class BadFilter(Exception):
+    """A filter value the user typed that could not be parsed."""
+
+    def __init__(self, field: str, value: str) -> None:
+        super().__init__(f"{field}: {value!r}")
+        self.field = field
+        self.value = value
+
+
+def _when(field: str, value: str | None) -> float | None:
+    """Parse a filter box, blaming the box rather than the server."""
+    try:
+        return parse_when(value)
+    except ValueError:
+        raise BadFilter(field, value or "") from None
+
+
 def create_app(service: Service) -> FastAPI:
     # Set on shutdown so the SSE generators return promptly. Without it,
     # uvicorn's graceful shutdown blocks on those never-ending responses and
@@ -103,6 +126,38 @@ def create_app(service: Service) -> FastAPI:
             response.delete_cookie(FLASH_COOKIE, path="/")
         return response
 
+    # -- error pages --------------------------------------------------------
+
+    # A stale bookmark used to land on raw JSON with no header and no way
+    # back. These render the same shell as everything else.
+    @app.exception_handler(HTTPException)
+    async def http_error(request: Request, exc: HTTPException):
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {"nav": "", "flash": None, "status": exc.status_code,
+             "detail": exc.detail},
+            status_code=exc.status_code,
+        )
+
+    @app.exception_handler(BadFilter)
+    async def bad_filter(request: Request, exc: BadFilter):
+        detail = (
+            f"Could not read {exc.field} as a time. Try a relative age like "
+            f"\u201c7d\u201d or \u201c24h\u201d, or a date like \u201c2026-08-01\u201d."
+        )
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": detail}, status_code=400)
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {"nav": "events", "flash": None, "status": 400, "detail": detail,
+             "back": "/events"},
+            status_code=400,
+        )
+
     # -- pages ------------------------------------------------------------
 
     @app.get("/", response_class=HTMLResponse)
@@ -110,10 +165,10 @@ def create_app(service: Service) -> FastAPI:
         return page(
             request,
             "live.html",
-            heard=q.heard_now(db),
+            heard=q.heard_now_groups(db),
             gap=gap,
             now=now_ts(),
-            recent=q.events(db, limit=25),
+            vehicles=db.list_vehicles(),
         )
 
     @app.get("/vehicles", response_class=HTMLResponse)
@@ -145,10 +200,16 @@ def create_app(service: Service) -> FastAPI:
 
     @app.get("/sensors", response_class=HTMLResponse)
     def sensors(request: Request):
+        # Hidden sensors are rendered but held back by the filter, so the
+        # "Hidden" tile can reveal them without a round trip -- otherwise the
+        # only way to un-hide one would be a URL you had to already know.
+        rows = q.sensor_rows(db, include_ignored=True)
         return page(
             request,
             "sensors.html",
-            sensors=q.sensor_rows(db),
+            sensors=rows,
+            visible=[r for r in rows if not r["ignored"]],
+            hidden=[r for r in rows if r["ignored"]],
             duplicates=q.alias_groups(db),
             vehicles=db.list_vehicles(),
         )
@@ -173,21 +234,60 @@ def create_app(service: Service) -> FastAPI:
         since: str | None = None,
         until: str | None = None,
         vehicle: int | None = None,
+        sensor: int | None = None,
+        view: str = "passes",
+        limit: int = 1000,
     ):
-        from ..cli import _parse_when
+        """The traffic log, as vehicle passes or as raw sensor sightings.
 
+        Passes are the default because the program is about vehicles going by.
+        Sightings are a peer view, not a debug mode: matching a car you watched
+        pass to the transmitters heard at that moment is done against the raw
+        rows.
+        """
+        view = view if view in ("passes", "sightings") else "passes"
+        limit = max(10, min(int(limit), 5000))
+        start, end = _when("since", since), _when("until", until)
+        # Asking for one sensor by name overrides hiding it. Hidden sensors
+        # are kept out of the lists you browse, not out of the answers you ask
+        # for -- the link to here comes from the sensor's own page.
+        seeing_hidden = sensor is not None
+        total = q.count_events(
+            db, start=start, end=end, vehicle_id=vehicle, sensor_pk=sensor,
+            include_ignored=seeing_hidden,
+        )
+
+        if view == "passes":
+            rows = q.vehicle_passes(
+                db, gap, start=start, end=end, vehicle_id=vehicle,
+                sensor_pk=sensor, limit=limit, scan_limit=PASS_SCAN_LIMIT,
+                include_ignored=seeing_hidden,
+            )
+            truncated = total > PASS_SCAN_LIMIT or len(rows) == limit
+        else:
+            rows = q.events(
+                db, start=start, end=end, vehicle_id=vehicle,
+                sensor_pk=sensor, limit=limit, include_ignored=seeing_hidden,
+            )
+            truncated = total > len(rows)
+
+        focus = q.sensor_row(db, sensor) if sensor else None
         return page(
             request,
             "events.html",
-            events=q.events(
-                db,
-                start=_parse_when(since),
-                end=_parse_when(until),
-                vehicle_id=vehicle,
-                limit=1000,
-            ),
+            view=view,
+            rows=rows,
+            total=total,
+            truncated=truncated,
+            limit=limit,
             vehicles=db.list_vehicles(),
-            filters={"since": since or "", "until": until or "", "vehicle": vehicle},
+            focus_sensor=focus or None,
+            filters={
+                "since": since or "",
+                "until": until or "",
+                "vehicle": vehicle,
+                "sensor": sensor,
+            },
         )
 
     @app.get("/status", response_class=HTMLResponse)
@@ -256,13 +356,17 @@ def create_app(service: Service) -> FastAPI:
 
     @app.get("/api/heard-now.html", response_class=HTMLResponse)
     def api_heard_now_html(request: Request):
-        """The 'heard now' table alone, for the Live page to swap in place."""
+        """The 'heard now' panel alone, for the Live page to swap in place."""
         return templates.TemplateResponse(
-            request, "_heard.html", {"heard": q.heard_now(db)}
+            request,
+            "_heard.html",
+            {"heard": q.heard_now_groups(db), "vehicles": db.list_vehicles()},
         )
 
     @app.get("/api/heard-now")
     def api_heard_now():
+        # The flat list, for anything reading this as data rather than
+        # rendering the page's grouping.
         return {"heard": q.heard_now(db), "gap": gap, "now": now_ts()}
 
     @app.get("/api/status")
@@ -275,9 +379,7 @@ def create_app(service: Service) -> FastAPI:
     # window without reloading the page around them.
 
     def _window(since: str | None, until: str | None) -> tuple[float | None, float | None]:
-        from ..cli import _parse_when
-
-        return _parse_when(since), _parse_when(until)
+        return _when("since", since), _when("until", until)
 
     @app.get("/api/activity")
     def api_activity(since: str | None = None, until: str | None = None, buckets: int = 96):
@@ -379,7 +481,12 @@ def create_app(service: Service) -> FastAPI:
     @app.post("/api/vehicles/{vehicle_id}/merge")
     async def merge_vehicle(request: Request, vehicle_id: int):
         form = await request.form()
-        other = int(form.get("other"))
+        try:
+            other = int(form.get("other") or "")
+        except (TypeError, ValueError):
+            raise HTTPException(400, "pick a vehicle to merge in") from None
+        if other == vehicle_id:
+            raise HTTPException(400, "a vehicle cannot be merged into itself")
         if db.get_vehicle(vehicle_id) is None or db.get_vehicle(other) is None:
             raise HTTPException(404, "vehicle not found")
         moved = _vehicle_name(other)
@@ -389,8 +496,47 @@ def create_app(service: Service) -> FastAPI:
         db.delete_empty_vehicles()
         return _back(request, f"/vehicles/{vehicle_id}", f"Merged {moved} into {into}.")
 
+    @app.post("/api/vehicles/{vehicle_id}/split")
+    async def split_vehicle(request: Request, vehicle_id: int):
+        """Move several sensors out into a vehicle of their own.
+
+        The answer to an oversized or mixed-family cluster is almost always
+        "these three are one car and those four are another", which moving one
+        sensor at a time made tedious enough to avoid.
+        """
+        form = await request.form()
+        if db.get_vehicle(vehicle_id) is None:
+            raise HTTPException(404, "vehicle not found")
+        try:
+            wanted = {int(v) for v in form.getlist("sensor")}
+        except ValueError:
+            raise HTTPException(400, "not a sensor") from None
+        members = {s.pk for s in db.sensors_for_vehicle(vehicle_id)}
+        chosen = wanted & members
+        if not chosen:
+            raise HTTPException(400, "select the sensors to split out")
+        if chosen == members:
+            raise HTTPException(400, "that would move every sensor, not split them")
+
+        target = db.create_vehicle(now_ts(), auto_generated=False)
+        for pk in sorted(chosen):
+            db.set_sensor_vehicle(pk, target)
+            # Pinned for the same reason a single move is: otherwise the next
+            # clustering run puts them straight back.
+            db.execute("UPDATE sensors SET pinned = 1 WHERE pk = ?", (pk,))
+        # The split is the review being resolved.
+        db.execute("UPDATE vehicles SET needs_review = 0 WHERE pk = ?", (vehicle_id,))
+        db.delete_empty_vehicles()
+        return _back(
+            request,
+            f"/vehicles/{target}",
+            f"Split {len(chosen)} sensor(s) out into {_vehicle_name(target)}.",
+        )
+
     @app.post("/api/vehicles/{vehicle_id}/review-cleared")
     async def clear_review(request: Request, vehicle_id: int):
+        if db.get_vehicle(vehicle_id) is None:
+            raise HTTPException(404, "vehicle not found")
         db.execute("UPDATE vehicles SET needs_review = 0 WHERE pk = ?", (vehicle_id,))
         return _back(request, f"/vehicles/{vehicle_id}", "Review flag cleared.")
 
@@ -413,7 +559,23 @@ def create_app(service: Service) -> FastAPI:
         if "pinned" in form:
             pinned = 1 if form.get("pinned") in ("1", "true", "on") else 0
             db.execute("UPDATE sensors SET pinned = ? WHERE pk = ?", (pinned, sensor_pk))
-            done.append("pinned" if pinned else "unpinned")
+            done.append(
+                "pinned, so clustering will leave it alone"
+                if pinned
+                else "unpinned, so clustering can place it again"
+            )
+
+        if "ignored" in form:
+            ignored = 1 if form.get("ignored") in ("1", "true", "on") else 0
+            db.execute(
+                "UPDATE sensors SET ignored = ? WHERE pk = ?", (ignored, sensor_pk)
+            )
+            if ignored:
+                # A hidden sensor must not keep a vehicle alive behind the
+                # scenes, and must not stay in a cluster it is excluded from.
+                db.set_sensor_vehicle(sensor_pk, None)
+                db.delete_empty_vehicles()
+            done.append("hidden from the lists" if ignored else "shown again")
 
         if "vehicle_id" in form:
             raw = (form.get("vehicle_id") or "").strip()
@@ -422,17 +584,25 @@ def create_app(service: Service) -> FastAPI:
             elif raw in ("", "none"):
                 target = None
             else:
-                target = int(raw)
+                try:
+                    target = int(raw)
+                except ValueError:
+                    raise HTTPException(400, "not a vehicle") from None
                 if db.get_vehicle(target) is None:
                     raise HTTPException(404, "vehicle not found")
-            db.set_sensor_vehicle(sensor_pk, target)
-            # Manual moves are only durable if the clusterer keeps its hands
-            # off, so pin the sensor as part of the same action.
-            db.execute("UPDATE sensors SET pinned = 1 WHERE pk = ?", (sensor_pk,))
-            db.delete_empty_vehicles()
-            done.append(
-                f"moved to {_vehicle_name(target)}" if target else "unassigned"
-            )
+            # Only act on a real change. This form used to be submitted
+            # alongside the wheel label, and branching on the field being
+            # *present* meant labelling a wheel silently pinned the sensor and
+            # reported a move that never happened.
+            if target != sensor.vehicle_id:
+                db.set_sensor_vehicle(sensor_pk, target)
+                # Manual moves are only durable if the clusterer keeps its
+                # hands off, so pin the sensor as part of the same action.
+                db.execute("UPDATE sensors SET pinned = 1 WHERE pk = ?", (sensor_pk,))
+                db.delete_empty_vehicles()
+                done.append(
+                    f"moved to {_vehicle_name(target)}" if target else "unassigned"
+                )
 
         message = f"{display}: {', '.join(done)}." if done else "Nothing to change."
         return _back(request, "/sensors", message, wheel_label=label)
@@ -458,42 +628,80 @@ def create_app(service: Service) -> FastAPI:
 
     @app.get("/api/export.csv")
     def export_csv(
-        since: str | None = None, until: str | None = None, vehicle: int | None = None
+        since: str | None = None,
+        until: str | None = None,
+        vehicle: int | None = None,
+        sensor: int | None = None,
+        view: str = "passes",
     ):
-        from ..cli import _parse_when
+        """The log as a file, in whichever shape the page is showing.
 
-        rows = q.events(
-            db,
-            start=_parse_when(since),
-            end=_parse_when(until),
-            vehicle_id=vehicle,
-            limit=100000,
-        )
+        The download used to always be sensor sightings regardless of what was
+        on screen, and over a different row limit, so the two disagreed.
+        """
+        view = view if view in ("passes", "sightings") else "passes"
+        start, end = _when("since", since), _when("until", until)
+        seeing_hidden = sensor is not None
         buffer = io.StringIO()
         writer = csv.writer(buffer)
-        writer.writerow(
-            ["vehicle", "sensor", "wheel", "first_heard", "last_heard",
-             "duration_s", "readings", "max_rssi", "band", "still_open"]
-        )
-        for row in rows:
+
+        if view == "passes":
             writer.writerow(
-                [
-                    row["vehicle_name"] or "",
-                    row["display"],
-                    row["wheel_label"] or "",
-                    row["started_at_iso"],
-                    row["last_reading_at_iso"],
-                    round(row["duration"], 1),
-                    row["reading_count"],
-                    row["max_rssi"] if row["max_rssi"] is not None else "",
-                    row["band"] or "",
-                    "yes" if row["open"] else "no",
-                ]
+                ["vehicle", "sensor", "first_heard", "last_heard", "duration_s",
+                 "wheels_heard", "wheels_known", "readings", "max_rssi", "band",
+                 "still_audible"]
             )
+            for row in q.vehicle_passes(
+                db, gap, start=start, end=end, vehicle_id=vehicle,
+                sensor_pk=sensor, limit=100000, scan_limit=1000000,
+                include_ignored=seeing_hidden,
+            ):
+                writer.writerow(
+                    [
+                        row["vehicle_name"] or "",
+                        row["display"] or "",
+                        row["started_at_iso"],
+                        row["last_reading_at_iso"],
+                        round(row["duration"], 1),
+                        row["wheels_heard"],
+                        row["wheels_known"] if row["wheels_known"] is not None else "",
+                        row["reading_count"],
+                        row["max_rssi"] if row["max_rssi"] is not None else "",
+                        row["band"] or "",
+                        "yes" if row["open"] else "no",
+                    ]
+                )
+        else:
+            writer.writerow(
+                ["vehicle", "sensor", "wheel", "first_heard", "last_heard",
+                 "duration_s", "readings", "max_rssi", "band", "still_audible"]
+            )
+            for row in q.events(
+                db, start=start, end=end, vehicle_id=vehicle,
+                sensor_pk=sensor, limit=100000, include_ignored=seeing_hidden,
+            ):
+                writer.writerow(
+                    [
+                        row["vehicle_name"] or "",
+                        row["display"],
+                        row["wheel_label"] or "",
+                        row["started_at_iso"],
+                        row["last_reading_at_iso"],
+                        round(row["duration"], 1),
+                        row["reading_count"],
+                        row["max_rssi"] if row["max_rssi"] is not None else "",
+                        row["band"] or "",
+                        "yes" if row["open"] else "no",
+                    ]
+                )
+
         return StreamingResponse(
             iter([buffer.getvalue()]),
             media_type="text/csv",
-            headers={"Content-Disposition": 'attachment; filename="tpms-events.csv"'},
+            headers={
+                "Content-Disposition":
+                    f'attachment; filename="tpms-{view}.csv"'
+            },
         )
 
     return app

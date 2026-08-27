@@ -1,0 +1,251 @@
+"""The correction loop: the clusterer guesses, the human corrects it.
+
+Every check here is a control that either did not exist or did the wrong
+thing, and each one is the sort of bug that is invisible until a grouping you
+fixed silently comes undone.
+"""
+
+import pytest
+from fastapi.testclient import TestClient
+
+from tpms import queries as q
+from tpms.config import Config
+from tpms.service import Service
+from tpms.synthetic import generate_lines
+from tpms.web.app import create_app
+
+
+@pytest.fixture
+def client(tmp_path):
+    service = Service(Config(database=str(tmp_path / "curation.db")), start_radio=False)
+    service.ingestor.replay(generate_lines())
+    service.ingestor.sweep(when=9e9)
+    service.recluster()
+    return TestClient(create_app(service)), service
+
+
+def _vehicle_with_several_sensors(db):
+    for vehicle in db.list_vehicles():
+        members = db.sensors_for_vehicle(vehicle.pk)
+        if len(members) >= 3:
+            return vehicle, members
+    pytest.skip("synthetic data produced no multi-sensor vehicle")
+
+
+# -- the wheel-label bug ----------------------------------------------------
+
+
+def test_labelling_a_wheel_does_not_move_or_pin_it(client):
+    """The form used to submit the label and the vehicle together, and the
+    handler branched on the vehicle field being *present* rather than changed.
+    Typing "FL" therefore pinned the sensor out of the clusterer's reach and
+    reported a move that never happened."""
+    api, service = client
+    sensor = service.db.list_sensors()[0]
+    assert not sensor.pinned
+
+    api.post(f"/api/sensors/{sensor.pk}", data={"wheel_label": "FL"},
+             follow_redirects=False)
+
+    after = service.db.get_sensor(sensor.pk)
+    assert after.wheel_label == "FL"
+    assert after.vehicle_id == sensor.vehicle_id
+    assert not after.pinned
+
+
+def test_resubmitting_the_same_vehicle_is_not_a_move(client):
+    api, service = client
+    sensor = next(s for s in service.db.list_sensors() if s.vehicle_id)
+
+    response = api.post(
+        f"/api/sensors/{sensor.pk}",
+        data={"wheel_label": "FR", "vehicle_id": str(sensor.vehicle_id)},
+        headers={"x-tpms-async": "1"},
+    )
+
+    assert "moved" not in response.json()["message"]
+    assert not service.db.get_sensor(sensor.pk).pinned
+
+
+def test_a_real_move_still_pins(client):
+    """The pin is what makes a manual placement survive the next run."""
+    api, service = client
+    sensor = next(s for s in service.db.list_sensors() if s.vehicle_id)
+    other = next(v for v in service.db.list_vehicles() if v.pk != sensor.vehicle_id)
+
+    api.post(f"/api/sensors/{sensor.pk}", data={"vehicle_id": str(other.pk)},
+             follow_redirects=False)
+
+    after = service.db.get_sensor(sensor.pk)
+    assert after.vehicle_id == other.pk
+    assert after.pinned
+
+
+# -- unpinning, which had no UI at all --------------------------------------
+
+
+def test_a_sensor_can_be_unpinned(client):
+    api, service = client
+    sensor = service.db.list_sensors()[0]
+    api.post(f"/api/sensors/{sensor.pk}", data={"pinned": "1"}, follow_redirects=False)
+    assert service.db.get_sensor(sensor.pk).pinned
+
+    api.post(f"/api/sensors/{sensor.pk}", data={"pinned": "0"}, follow_redirects=False)
+    assert not service.db.get_sensor(sensor.pk).pinned
+
+
+def test_the_pin_control_is_actually_rendered(client):
+    """The handler has always worked; no template offered it, so a manual
+    placement could never be handed back to the clusterer."""
+    api, service = client
+    pk = service.db.list_sensors()[0].pk
+    assert 'name="pinned"' in api.get(f"/sensors/{pk}").text
+
+
+# -- splitting --------------------------------------------------------------
+
+
+def test_splitting_moves_exactly_the_selected_sensors(client):
+    api, service = client
+    vehicle, members = _vehicle_with_several_sensors(service.db)
+    chosen = [s.pk for s in members[:2]]
+    kept = [s.pk for s in members[2:]]
+
+    api.post(f"/api/vehicles/{vehicle.pk}/split",
+             data={"sensor": [str(pk) for pk in chosen]}, follow_redirects=False)
+
+    target = service.db.get_sensor(chosen[0]).vehicle_id
+    assert target != vehicle.pk
+    assert all(service.db.get_sensor(pk).vehicle_id == target for pk in chosen)
+    assert all(service.db.get_sensor(pk).vehicle_id == vehicle.pk for pk in kept)
+    assert all(service.db.get_sensor(pk).pinned for pk in chosen)
+
+
+def test_a_split_survives_the_next_clustering_run(client):
+    """A correction the clusterer undoes on its next pass is not a correction."""
+    api, service = client
+    vehicle, members = _vehicle_with_several_sensors(service.db)
+    chosen = [s.pk for s in members[:2]]
+
+    api.post(f"/api/vehicles/{vehicle.pk}/split",
+             data={"sensor": [str(pk) for pk in chosen]}, follow_redirects=False)
+    target = service.db.get_sensor(chosen[0]).vehicle_id
+    service.recluster()
+
+    assert all(service.db.get_sensor(pk).vehicle_id == target for pk in chosen)
+
+
+def test_splitting_clears_the_review_flag(client):
+    api, service = client
+    vehicle, members = _vehicle_with_several_sensors(service.db)
+    service.db.execute(
+        "UPDATE vehicles SET needs_review = 1 WHERE pk = ?", (vehicle.pk,)
+    )
+
+    api.post(f"/api/vehicles/{vehicle.pk}/split",
+             data={"sensor": [str(members[0].pk)]}, follow_redirects=False)
+
+    assert not service.db.get_vehicle(vehicle.pk).needs_review
+
+
+@pytest.mark.parametrize("payload", [{}, {"sensor": []}])
+def test_splitting_nothing_is_refused(client, payload):
+    api, service = client
+    vehicle, _ = _vehicle_with_several_sensors(service.db)
+    assert api.post(f"/api/vehicles/{vehicle.pk}/split", data=payload).status_code == 400
+
+
+def test_splitting_everything_is_refused(client):
+    """Moving every sensor is a rename, not a split, and would strand the
+    vehicle's name and notes on an empty shell that then gets deleted."""
+    api, service = client
+    vehicle, members = _vehicle_with_several_sensors(service.db)
+    response = api.post(
+        f"/api/vehicles/{vehicle.pk}/split",
+        data={"sensor": [str(s.pk) for s in members]},
+    )
+    assert response.status_code == 400
+
+
+# -- guards that used to be 500s --------------------------------------------
+
+
+@pytest.mark.parametrize("data", [{}, {"other": ""}, {"other": "banana"}])
+def test_a_malformed_merge_is_a_400(client, data):
+    assert client[0].post("/api/vehicles/1/merge", data=data).status_code == 400
+
+
+def test_merging_a_vehicle_into_itself_is_refused(client):
+    assert client[0].post("/api/vehicles/1/merge", data={"other": "1"}).status_code == 400
+
+
+def test_clearing_review_on_a_missing_vehicle_is_a_404(client):
+    """It used to silently no-op, so a typo looked like a success."""
+    assert client[0].post("/api/vehicles/9999/review-cleared").status_code == 404
+
+
+# -- hiding ------------------------------------------------------------------
+
+
+def test_hiding_removes_a_sensor_from_the_lists_but_not_the_record(client):
+    api, service = client
+    db = service.db
+    sensor = next(s for s in db.list_sensors() if s.alias_of is None)
+
+    api.post(f"/api/sensors/{sensor.pk}", data={"ignored": "1"},
+             follow_redirects=False)
+
+    assert db.get_sensor(sensor.pk).ignored
+    assert sensor.pk not in [r["pk"] for r in q.sensor_rows(db)]
+    assert sensor.pk not in [r["sensor_pk"] for r in q.heard_now(db)]
+    # Still entirely present as a record.
+    assert api.get(f"/sensors/{sensor.pk}").status_code == 200
+    assert sensor.pk in [r["pk"] for r in q.sensor_rows(db, include_ignored=True)]
+
+
+def test_a_hidden_sensor_is_never_clustered(client):
+    """A resident transmitter is audible while everything drives past, so
+    letting it cluster would undo the point of hiding it."""
+    api, service = client
+    sensor = next(s for s in service.db.list_sensors() if s.alias_of is None)
+
+    api.post(f"/api/sensors/{sensor.pk}", data={"ignored": "1"},
+             follow_redirects=False)
+    report = service.recluster()
+
+    assert sensor.pk in report.skipped_ignored
+    assert service.db.get_sensor(sensor.pk).vehicle_id is None
+
+
+def test_hiding_is_reversible(client):
+    api, service = client
+    sensor = next(s for s in service.db.list_sensors() if s.alias_of is None)
+
+    api.post(f"/api/sensors/{sensor.pk}", data={"ignored": "1"}, follow_redirects=False)
+    api.post(f"/api/sensors/{sensor.pk}", data={"ignored": "0"}, follow_redirects=False)
+
+    assert not service.db.get_sensor(sensor.pk).ignored
+    assert sensor.pk in [r["pk"] for r in q.sensor_rows(service.db)]
+
+
+def test_hidden_sensors_are_rendered_so_they_can_be_recovered(client):
+    """They are held back by the filter, not omitted -- otherwise the only way
+    to un-hide one would be a URL you had to already know."""
+    api, service = client
+    sensor = next(s for s in service.db.list_sensors() if s.alias_of is None)
+    api.post(f"/api/sensors/{sensor.pk}", data={"ignored": "1"}, follow_redirects=False)
+
+    body = api.get("/sensors").text
+    assert 'data-hidden-unless="hidden"' in body
+    assert f'/sensors/{sensor.pk}' in body
+
+
+def test_asking_for_a_hidden_sensor_by_name_still_answers(client):
+    """Hidden means kept out of the lists you browse, not out of the answers
+    you ask for -- the link into the log comes from the sensor's own page."""
+    api, service = client
+    sensor = next(s for s in service.db.list_sensors() if s.alias_of is None)
+    api.post(f"/api/sensors/{sensor.pk}", data={"ignored": "1"}, follow_redirects=False)
+
+    assert api.get(f"/events?sensor={sensor.pk}").status_code == 200
+    assert q.events(service.db, sensor_pk=sensor.pk, include_ignored=True)

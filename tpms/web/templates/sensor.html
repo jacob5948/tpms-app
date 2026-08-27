@@ -16,6 +16,7 @@
       {% if s.wheel_label %}<span class="pill">{{ s.wheel_label }}</span>{% endif %}
       {% if s.pinned %}<span class="pill">pinned</span>{% endif %}
       {% if s.resident %}<span class="pill warn">resident</span>{% endif %}
+      {% if s.ignored %}<span class="pill">hidden</span>{% endif %}
     </h1>
     <p class="sub">
       {% if s.alias_of %}
@@ -56,12 +57,22 @@
   <div class="row">
     <div>
       <div class="k">Vehicle</div>
-      <div style="font-size:16px;margin-top:2px">{{ m.vehicle_cell(s.vehicle_id, s.vehicle_name) }}</div>
+      <div class="current">{{ m.vehicle_cell(s.vehicle_id, s.vehicle_name) }}</div>
     </div>
-    <form class="inline right" method="post" data-busy="Applying…"
+    {# Two separate forms. They used to be one, and because the handler acted
+       on the vehicle field being *present* rather than changed, typing a wheel
+       label pinned the sensor and claimed to have moved it. #}
+    <form class="inline" method="post" data-async data-busy="Saving…"
           action="/api/sensors/{{ s.pk }}">
-      <input type="text" name="wheel_label" value="{{ s.wheel_label or '' }}" placeholder="Wheel, e.g. FL" size="8">
-      <select name="vehicle_id">
+      <label class="sr-only" for="wheel">Wheel label</label>
+      <input id="wheel" type="text" name="wheel_label" value="{{ s.wheel_label or '' }}"
+             placeholder="Wheel, e.g. FL" size="8">
+      <button type="submit">Label</button>
+    </form>
+    <form class="inline right" method="post" data-busy="Moving…"
+          action="/api/sensors/{{ s.pk }}">
+      <label class="sr-only" for="move">Move to a vehicle</label>
+      <select id="move" name="vehicle_id">
         <option value="{{ s.vehicle_id or 'none' }}">{{ 'keep vehicle' if s.vehicle_id else 'unassigned' }}</option>
         <option value="new">new vehicle</option>
         <option value="none">unassign</option>
@@ -69,11 +80,61 @@
         <option value="{{ v.pk }}">move to {{ v.display }}</option>
         {% endif %}{% endfor %}
       </select>
-      <button class="primary" type="submit">Apply</button>
+      <button class="primary" type="submit">Move</button>
     </form>
   </div>
-  <p class="sub" style="margin:10px 0 0">
-    Assigning by hand pins the sensor, so clustering will not move it back.
+  <p class="sub spaced-sm">
+    Labelling a wheel changes nothing else. Moving it to a vehicle by hand
+    pins it, so clustering will not move it back.
+  </p>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <div>
+      <div class="k">Clustering</div>
+      <div class="current">
+        {% if s.pinned %}Pinned &mdash; placed by hand, and clustering leaves it alone.
+        {% else %}Free &mdash; clustering may place this sensor on any pass.{% endif %}
+      </div>
+    </div>
+    <form class="inline right" method="post" data-busy="Saving…"
+          action="/api/sensors/{{ s.pk }}">
+      <button type="submit" name="pinned" value="{{ 0 if s.pinned else 1 }}">
+        {{ 'Unpin' if s.pinned else 'Pin here' }}
+      </button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="row">
+    <div>
+      <div class="k">Visibility</div>
+      <div class="current">
+        {% if s.ignored %}Hidden from the lists.
+        {% else %}Shown everywhere.{% endif %}
+      </div>
+    </div>
+    <form class="inline right" method="post" data-busy="Saving…"
+          action="/api/sensors/{{ s.pk }}"
+          {% if not s.ignored %}data-confirm="Hide this sensor from the lists? It keeps recording, and you can show it again from this page."{% endif %}>
+      <button type="submit" name="ignored" value="{{ 0 if s.ignored else 1 }}">
+        {{ 'Show it again' if s.ignored else 'Hide this sensor' }}
+      </button>
+    </form>
+  </div>
+  <p class="sub spaced-sm">
+    {% if s.ignored %}
+      This sensor is kept out of the sensor list, the live view, the traffic
+      charts and clustering. Its readings are still being recorded, and this
+      page still shows everything about it.
+    {% else %}
+      Hiding is for transmitters that are real but not interesting &mdash; a
+      neighbour's car parked in range. It leaves the lists, the live view and
+      clustering, but keeps recording. Nothing is deleted; that is
+      <code>tpms purge</code>.
+    {% endif %}
   </p>
 </div>
 
@@ -101,7 +162,7 @@
 <div class="panel">
   <div id="chart-range"></div>
   <div id="chart-psi"></div>
-  <div id="chart-temp" style="margin-top:18px"></div>
+  <div id="chart-temp" class="chart-stacked"></div>
   <script id="chart-data" type="application/json">{{ s.history | tojson }}</script>
 </div>
 
@@ -161,7 +222,10 @@
 </div>
 {% endif %}
 
-<h2>Sightings</h2>
+<div class="head-row">
+  <h2>Sightings</h2>
+  {{ m.log_link(sensor_pk=s.pk, text='Open in the log') }}
+</div>
 <p class="sub">
   Each run of readings with no gap longer than {{ gap | int }}s. A sighting
   ending means the sensor went quiet, which usually but not always means the
@@ -177,8 +241,11 @@
     <tbody>
       {% for x in s.sightings %}
       <tr>
-        <td data-sort="{{ x.started_at }}">{{ x.started_at | iso }}</td>
-        <td data-sort="{{ x.ended_at or x.started_at }}">{% if x.open %}<span class="pill live">still audible</span>{% else %}{{ x.ended_at | iso }}{% endif %}</td>
+        {{ m.when(x.started_at) }}
+        <td data-sort="{{ x.ended_at or x.started_at }}" title="{{ x.ended_at | iso }}">
+          {%- if x.open %}<span class="pill live">still audible</span>
+          {%- else %}{{ x.ended_at | ago }}{% endif -%}
+        </td>
         <td class="num" data-sort="{{ x.duration }}">{{ x.duration | duration }}</td>
         <td class="num">{{ x.reading_count }}</td>
         <td class="num">{{ '%.1f' % x.max_rssi if x.max_rssi is not none else '—' }}</td>
@@ -196,7 +263,7 @@
 <details class="panel raw">
   <summary>Last raw packet</summary>
   <pre class="mono">{{ s.raw }}</pre>
-  <p class="sub" style="margin:8px 0 0">
+  <p class="sub spaced-sm">
     Exactly as rtl_433 emitted it, at {{ s.latest_ts_iso }}. Every line is also
     archived to <code>raw/</code>, so a normalization bug loses nothing.
   </p>

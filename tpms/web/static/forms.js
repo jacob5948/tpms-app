@@ -69,6 +69,15 @@
   document.addEventListener('submit', function (event) {
     const form = event.target;
     if (!form.matches('form') || form.method.toLowerCase() !== 'post') return;
+
+    /* Merging and splitting reparent every sensor on a vehicle and cannot be
+     * undone with one click, so they ask first. Without JS the submit goes
+     * through as before -- the server is still the thing that decides. */
+    if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) {
+      event.preventDefault();
+      return;
+    }
+
     const button = form.querySelector('button[type="submit"], button:not([type])');
 
     if (form.dataset.async === undefined) {

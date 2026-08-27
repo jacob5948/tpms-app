@@ -17,56 +17,40 @@
 </div>
 
 <div class="stats">
-  {{ m.stat('Transmitters', sensors | length, 'after folding duplicates') }}
-  {{ m.stat('Audible now', sensors | selectattr('present') | list | length,
-            'click to filter', flag='present') }}
-  {{ m.stat('Unassigned', sensors | rejectattr('vehicle_id') | list | length,
-            'click to filter', flag='unassigned') }}
-  {{ m.stat('Duplicate groups', duplicates | length, 'click to filter', flag='duplicates') }}
-  {{ m.stat('New today', sensors | selectattr('new') | list | length,
-            'first heard in the last 24h', flag='new') }}
+  {{ m.stat('Transmitters', visible | length, 'after folding duplicates',
+            target='sensor-table') }}
+  {{ m.stat('Audible now', visible | selectattr('present') | list | length,
+            'click to filter', flag='present', target='sensor-table') }}
+  {{ m.stat('Unassigned', visible | rejectattr('vehicle_id') | list | length,
+            'click to filter', flag='unassigned', target='sensor-table') }}
+  {{ m.stat('Duplicate groups', duplicates | length, 'click to filter',
+            flag='duplicates', target='sensor-table') }}
+  {{ m.stat('New today', visible | selectattr('new') | list | length,
+            'first heard in the last 24h', flag='new', target='sensor-table') }}
+  {{ m.stat('Resident', visible | selectattr('resident') | list | length,
+            'parked in range, not passing', flag='resident', target='sensor-table') }}
+  {% if hidden %}
+  {{ m.stat('Hidden', hidden | length, 'click to show', flag='hidden',
+            target='sensor-table') }}
+  {% endif %}
 </div>
 
 <div class="row filter-bar" data-filter-for="sensor-table">
   <input type="search" placeholder="Filter by sensor, vehicle or band&hellip;"
-         aria-label="Filter sensors" autocomplete="off" style="min-width:260px">
+         aria-label="Filter sensors" autocomplete="off" class="field-wide">
   <span class="filter-count pill" hidden></span>
   <button type="button" class="filter-clear">Clear</button>
 </div>
 
-<div class="panel scroll">
-  {% if sensors %}
-  <table id="sensor-table">
-    <thead><tr>
-      <th>Sensor</th><th>Vehicle</th><th>Band</th>
-      <th class="num">psi</th><th class="num">&deg;C</th><th>Battery</th>
-      <th class="num">RSSI</th><th class="num">Readings</th>
-      <th>First heard</th><th>Last heard</th><th></th>
-    </tr></thead>
-    <tbody>
-      {% for s in sensors %}
-      <tr data-unassigned="{{ 0 if s.vehicle_id else 1 }}"
-          data-present="{{ 1 if s.present else 0 }}"
-          data-duplicates="{{ 1 if s.aliases else 0 }}"
-          data-resident="{{ 1 if s.resident else 0 }}"
-          data-new="{{ 1 if s.new else 0 }}">
-        <td>{{ m.sensor_cell(s) }}</td>
-        <td>{{ m.vehicle_cell(s.vehicle_id, s.vehicle_name) }}</td>
-        {{ m.band_cell(s.bands) }}
-        {{ m.reading_cells(s) }}
-        <td class="num">{{ s.reading_count }}</td>
-        <td title="{{ s.first_seen_iso }}" data-sort="{{ s.first_seen }}">{{ s.first_seen | ago }}</td>
-        <td title="{{ s.last_seen_iso }}" data-sort="{{ s.last_seen }}">{{ s.last_seen | ago }}</td>
-        <td><a class="btn" href="/sensors/{{ s.pk }}">Open</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <div class="empty">Nothing heard yet.</div>
-  {% endif %}
-  <div class="empty filter-empty" hidden>No sensor matches this filter.</div>
-</div>
+{{ m.sensor_table(sensors, id='sensor-table') }}
+
+{% if hidden %}
+<p class="sub">
+  {{ hidden | length }} sensor{{ '' if hidden | length == 1 else 's' }} hidden
+  by hand &mdash; still recorded, kept out of this list, the live view and
+  clustering. Use the <strong>Hidden</strong> tile above to see them.
+</p>
+{% endif %}
 
 {% if duplicates %}
 <h2>Duplicate decodes ({{ duplicates | length }})</h2>

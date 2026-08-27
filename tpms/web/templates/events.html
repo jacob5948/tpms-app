@@ -1,55 +1,217 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
-{% block title %}Events &middot; TPMS{% endblock %}
+{% block title %}Log &middot; TPMS{% endblock %}
 {% block body %}
-<h1>Events</h1>
-<p class="sub">
-  One row per sensor sighting: when it was first heard and when it was last
-  heard. &ldquo;Last heard&rdquo; is exactly that &mdash; the sensor may have
-  gone quiet because the vehicle left, or because it stopped moving.
-</p>
+{% set qs %}since={{ filters.since }}&until={{ filters.until }}&vehicle={{ filters.vehicle or '' }}&sensor={{ filters.sensor or '' }}{% endset %}
 
-<div class="panel">
-  <form class="row" method="get" action="/events">
-    <label>Since <input type="text" name="since" value="{{ filters.since }}" placeholder="7d or 2026-08-01" size="16"></label>
-    <label>Until <input type="text" name="until" value="{{ filters.until }}" placeholder="now" size="16"></label>
-    <label>Vehicle
-      <select name="vehicle">
-        <option value="">all</option>
-        {% for v in vehicles %}
-        <option value="{{ v.pk }}" {{ 'selected' if v.pk == filters.vehicle }}>{{ v.display }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <button class="primary" type="submit">Filter</button>
-    <a class="btn right" href="/api/export.csv?since={{ filters.since }}&until={{ filters.until }}&vehicle={{ filters.vehicle or '' }}">Download CSV</a>
-  </form>
+<div class="page-head">
+  <div>
+    <h1>Traffic log</h1>
+    <p class="sub">
+      {% if view == 'passes' %}
+        One row per vehicle going past, with the wheels it was heard on rolled
+        up. &ldquo;Last heard&rdquo; is exactly that &mdash; a vehicle goes
+        quiet because it left, or because it stopped moving.
+      {% else %}
+        One row per sensor sighting, exactly as the receiver decoded it. This
+        is the view to match against a car you watched go past: every
+        transmitter audible at that moment, unmerged.
+      {% endif %}
+    </p>
+  </div>
 </div>
 
+{# Two peer views of the same window, not a view and a debug mode. #}
+<nav class="tabs" aria-label="Log view">
+  <a href="/events?view=passes&amp;{{ qs }}"
+     class="{{ 'active' if view == 'passes' }}"
+     {{ 'aria-current=page' if view == 'passes' }}>Vehicle passes</a>
+  <a href="/events?view=sightings&amp;{{ qs }}"
+     class="{{ 'active' if view == 'sightings' }}"
+     {{ 'aria-current=page' if view == 'sightings' }}>Sensor sightings</a>
+</nav>
+
+{% if focus_sensor %}
+<div class="note">
+  Filtered to {{ m.sensor_link(focus_sensor.pk, focus_sensor.display, focus_sensor.wheel_label) }},
+  including anything its duplicate decoders logged.
+  <a href="/events?view={{ view }}&amp;since={{ filters.since }}&amp;until={{ filters.until }}">Clear</a>
+</div>
+{% endif %}
+
+<div class="panel">
+  <form class="row filters" method="get" action="/events">
+    <input type="hidden" name="view" value="{{ view }}">
+    {% if filters.sensor %}<input type="hidden" name="sensor" value="{{ filters.sensor }}">{% endif %}
+    <label for="f-since">Since</label>
+    <input id="f-since" type="text" name="since" value="{{ filters.since }}"
+           placeholder="7d or 2026-08-01" size="16">
+    <label for="f-until">Until</label>
+    <input id="f-until" type="text" name="until" value="{{ filters.until }}"
+           placeholder="now" size="16">
+    <label for="f-vehicle">Vehicle</label>
+    <select id="f-vehicle" name="vehicle">
+      <option value="">all</option>
+      {% for v in vehicles %}
+      <option value="{{ v.pk }}" {{ 'selected' if v.pk == filters.vehicle }}>{{ v.display }}</option>
+      {% endfor %}
+    </select>
+    <button class="primary" type="submit">Filter</button>
+    <a class="btn" href="/events?view={{ view }}">Reset</a>
+    <span class="spacer"></span>
+    <a class="btn" href="/api/export.csv?view={{ view }}&amp;{{ qs }}">Download CSV</a>
+  </form>
+  {# The same ranges the charts offer, so one page does not invent a second
+     idiom for "the last day". #}
+  <div class="chips">
+    <span class="k">Quick range</span>
+    {% for label, value in [('1h', '1h'), ('24h', '24h'), ('7d', '7d'), ('30d', '30d')] %}
+    <a class="chip {{ 'active' if filters.since == value }}"
+       href="/events?view={{ view }}&amp;since={{ value }}&amp;vehicle={{ filters.vehicle or '' }}&amp;sensor={{ filters.sensor or '' }}">{{ label }}</a>
+    {% endfor %}
+    <a class="chip {{ 'active' if not filters.since }}"
+       href="/events?view={{ view }}&amp;vehicle={{ filters.vehicle or '' }}&amp;sensor={{ filters.sensor or '' }}">all</a>
+  </div>
+</div>
+
+{% if truncated %}
+<div class="note">
+  Showing the most recent {{ rows | length }}
+  {{ 'pass(es)' if view == 'passes' else 'sighting(s)' }} of
+  {{ total }} sighting(s) in this window. Narrow the range to see the rest, or
+  <a href="/api/export.csv?view={{ view }}&amp;{{ qs }}">download the whole thing</a>.
+</div>
+{% endif %}
+
 <div class="panel scroll">
-  {% if events %}
-  <table>
+  {% if not rows %}
+  <div class="empty">
+    Nothing matches this filter.
+    {% if filters.since or filters.until or filters.vehicle or filters.sensor %}
+      <a href="/events?view={{ view }}">Clear the filter</a> to see everything.
+    {% endif %}
+  </div>
+
+  {% elif view == 'passes' %}
+  <table id="rows">
     <thead><tr>
       <th>First heard</th><th>Last heard</th><th class="num">Duration</th>
-      <th>Sensor</th><th>Vehicle</th><th class="num">Readings</th><th class="num">RSSI</th><th>Band</th>
+      <th>Vehicle</th><th class="num">Wheels</th><th class="num">Readings</th>
+      <th class="num">Peak RSSI</th><th>Band</th><th></th>
     </tr></thead>
     <tbody>
-      {% for e in events %}
+      {% for p in rows %}
       <tr>
-        <td data-sort="{{ e.started_at }}">{{ e.started_at_iso }}</td>
-        <td data-sort="{{ e.last_reading_at }}">{% if e.open %}<span class="pill live">still audible</span>{% else %}{{ e.last_reading_at_iso }}{% endif %}</td>
+        {{ m.when(p.started_at) }}
+        <td data-sort="{{ p.last_reading_at }}" title="{{ p.last_reading_at_iso }}">
+          {%- if p.open %}<span class="pill live">still audible</span>
+          {%- else %}{{ p.last_reading_at | ago }}{% endif -%}
+        </td>
+        <td class="num" data-sort="{{ p.duration }}">{{ p.duration | duration }}</td>
+        <td>
+          {%- if p.vehicle_id -%}
+            {{ m.vehicle_cell(p.vehicle_id, p.vehicle_name) }}
+          {%- else -%}
+            {{ m.sensor_link(p.sensor_pk, p.display) }}
+            <span class="pill" title="Not grouped into a vehicle yet">unassigned</span>
+          {%- endif -%}
+        </td>
+        <td class="num" data-sort="{{ p.wheels_heard }}"
+            title="Transmitters heard on this pass{% if p.wheels_known %}, out of {{ p.wheels_known }} known on this vehicle{% endif %}">
+          {{ p.wheels_heard }}{% if p.wheels_known %}<span class="muted">/{{ p.wheels_known }}</span>{% endif %}
+        </td>
+        <td class="num">{{ p.reading_count }}</td>
+        <td class="num" data-sort="{{ p.max_rssi if p.max_rssi is not none else '' }}">
+          {{- '%.1f' % p.max_rssi if p.max_rssi is not none else '—' -}}</td>
+        <td class="band">{{ p.band or '—' }}</td>
+        <td>
+          {% if p.sightings | length > 1 %}
+          <button type="button" class="link" data-expand="pass-{{ loop.index }}"
+                  aria-expanded="false" aria-controls="pass-{{ loop.index }}">
+            {{ p.sightings | length }} sightings
+          </button>
+          {% endif %}
+        </td>
+      </tr>
+      {% if p.sightings | length > 1 %}
+      {# Rendered, not fetched: without JS these are simply visible, which is
+         the correct fallback for "the evidence behind this row". #}
+      <tr class="sub-rows" id="pass-{{ loop.index }}" data-nosort>
+        <td colspan="9">
+          <table class="inner">
+            <thead><tr>
+              <th>Sensor</th><th>First heard</th><th>Last heard</th>
+              <th class="num">Duration</th><th class="num">Readings</th>
+              <th class="num">Peak RSSI</th><th>Band</th>
+            </tr></thead>
+            <tbody>
+              {% for x in p.sightings %}
+              <tr>
+                <td>{{ m.sensor_link(x.sensor_pk, x.display, x.wheel_label) }}</td>
+                {{ m.when(x.started_at) }}
+                <td title="{{ x.last_reading_at_iso }}">
+                  {%- if x.open %}<span class="pill live">still audible</span>
+                  {%- else %}{{ x.last_reading_at | ago }}{% endif -%}
+                </td>
+                <td class="num">{{ x.duration | duration }}</td>
+                <td class="num">{{ x.reading_count }}</td>
+                <td class="num">{{ '%.1f' % x.max_rssi if x.max_rssi is not none else '—' }}</td>
+                <td class="band">{{ x.band or '—' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% else %}
+  <table id="rows">
+    <thead><tr>
+      <th>First heard</th><th>Last heard</th><th class="num">Duration</th>
+      <th>Sensor</th><th>Vehicle</th><th class="num">Readings</th>
+      <th class="num">Peak RSSI</th><th>Band</th>
+    </tr></thead>
+    <tbody>
+      {% for e in rows %}
+      <tr>
+        {{ m.when(e.started_at) }}
+        <td data-sort="{{ e.last_reading_at }}" title="{{ e.last_reading_at_iso }}">
+          {%- if e.open %}<span class="pill live">still audible</span>
+          {%- else %}{{ e.last_reading_at | ago }}{% endif -%}
+        </td>
         <td class="num" data-sort="{{ e.duration }}">{{ e.duration | duration }}</td>
         <td>{{ m.sensor_link(e.sensor_pk, e.display, e.wheel_label) }}</td>
         <td>{{ m.vehicle_cell(e.vehicle_id, e.vehicle_name) }}</td>
         <td class="num">{{ e.reading_count }}</td>
-        <td class="num">{{ '%.1f' % e.max_rssi if e.max_rssi is not none else '-' }}</td>
+        <td class="num" data-sort="{{ e.max_rssi if e.max_rssi is not none else '' }}">
+          {{- '%.1f' % e.max_rssi if e.max_rssi is not none else '—' -}}</td>
         <td class="band">{{ e.band or '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-  {% else %}
-  <div class="empty">No sightings match this filter.</div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Collapse the sightings behind each pass. They are in the DOM already, so
+// this only hides them -- with JS off the page still shows the evidence.
+(function () {
+  document.querySelectorAll('.sub-rows').forEach(row => { row.hidden = true; });
+  document.querySelectorAll('[data-expand]').forEach(button => {
+    button.addEventListener('click', () => {
+      const row = document.getElementById(button.dataset.expand);
+      if (!row) return;
+      row.hidden = !row.hidden;
+      button.setAttribute('aria-expanded', String(!row.hidden));
+    });
+  });
+})();
+</script>
 {% endblock %}

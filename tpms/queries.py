@@ -29,35 +29,52 @@ class Interval:
         return (self.ended_at or now_ts()) - self.started_at
 
 
+def merge_runs(
+    items: list[Any],
+    join_gap: float,
+    bounds: Any = lambda item: (item[0], item[1]),
+) -> list[dict[str, Any]]:
+    """Group sightings into runs separated by more than ``join_gap``.
+
+    The single definition of what makes several sightings one appearance. A
+    vehicle is 'heard' from its first wheel to its last, so overlapping (or
+    near-touching) wheel sightings collapse together. Both the interval
+    summaries and the pass log are built on this, so the two can never drift
+    apart on where one pass ends and the next begins.
+
+    ``bounds`` pulls ``(started_at, ended_at)`` out of whatever the caller is
+    grouping; ``ended_at`` of None means still open.
+    """
+    runs: list[dict[str, Any]] = []
+    for item in sorted(items, key=lambda i: bounds(i)[0]):
+        started, ended = bounds(item)
+        if runs:
+            current_end = runs[-1]["ended_at"]
+            # An open sighting swallows anything that starts after it.
+            if current_end is None or started <= current_end + join_gap:
+                runs[-1]["items"].append(item)
+                if ended is None or current_end is None:
+                    runs[-1]["ended_at"] = None
+                else:
+                    runs[-1]["ended_at"] = max(current_end, ended)
+                continue
+        runs.append({"started_at": started, "ended_at": ended, "items": [item]})
+    return runs
+
+
 def merge_intervals(
     rows: list[tuple[float, float | None, int]], join_gap: float
 ) -> list[Interval]:
-    """Roll per-sensor sightings up into per-vehicle intervals.
-
-    A vehicle is 'heard' from its first wheel to its last, so overlapping (or
-    near-touching) wheel sightings collapse into a single appearance.
-    """
-    if not rows:
-        return []
-
-    ordered = sorted(rows, key=lambda r: r[0])
-    merged: list[Interval] = []
-
-    for started, ended, readings in ordered:
-        if merged:
-            current = merged[-1]
-            # An open sighting swallows anything that starts after it.
-            current_end = current.ended_at
-            if current_end is None or started <= current_end + join_gap:
-                current.sensor_count += 1
-                current.reading_count += readings
-                if ended is None or current_end is None:
-                    current.ended_at = None
-                else:
-                    current.ended_at = max(current_end, ended)
-                continue
-        merged.append(Interval(started, ended, 1, readings))
-
+    """Roll per-sensor sightings up into per-vehicle intervals, newest first."""
+    merged = [
+        Interval(
+            run["started_at"],
+            run["ended_at"],
+            len(run["items"]),
+            sum(item[2] for item in run["items"]),
+        )
+        for run in merge_runs(rows, join_gap)
+    ]
     merged.reverse()  # newest first
     return merged
 
@@ -198,11 +215,18 @@ def vehicle_summaries(db: Database, join_gap: float) -> list[dict[str, Any]]:
                MAX(n.last_seen) AS last_seen,
                SUM(n.reading_count) AS reading_count
           FROM vehicles v
-          LEFT JOIN sensors n ON n.vehicle_id = v.pk
+          LEFT JOIN sensors n ON n.vehicle_id = v.pk AND n.ignored = 0
          GROUP BY v.pk
          ORDER BY last_seen DESC NULLS LAST
         """
     )
+    # Computed once for the page, not once per sensor of every vehicle. Each
+    # of these is a scan of the whole sensors table, and sensor_row falls back
+    # to recomputing them when they are not supplied.
+    residents = resident_pks(db)
+    duty_cycles = db.duty_cycles()
+    bands_by_sensor = db.all_band_counts()
+
     out = []
     for row in rows:
         intervals = vehicle_intervals(db, int(row["pk"]), join_gap, limit=500)
@@ -223,7 +247,9 @@ def vehicle_summaries(db: Database, join_gap: float) -> list[dict[str, Any]]:
                 "appearances": len(intervals),
                 "present": bool(intervals and intervals[0].open),
                 "sensors": [
-                    sensor_row(db, s.pk) for s in db.sensors_for_vehicle(int(row["pk"]))
+                    sensor_row(db, s.pk, residents, duty_cycles, bands_by_sensor)
+                    for s in db.sensors_for_vehicle(int(row["pk"]))
+                    if not s.ignored
                 ],
             }
         )
@@ -311,6 +337,7 @@ def sensor_row(
         "display": sensor.display,
         "wheel_label": sensor.wheel_label,
         "pinned": sensor.pinned,
+        "ignored": sensor.ignored,
         "alias_of": sensor.alias_of,
         "vehicle_id": sensor.vehicle_id,
         "reading_count": sensor.reading_count,
@@ -333,12 +360,18 @@ def sensor_row(
     }
 
 
-def sensor_rows(db: Database, include_aliases: bool = False) -> list[dict[str, Any]]:
+def sensor_rows(
+    db: Database,
+    include_aliases: bool = False,
+    include_ignored: bool = False,
+) -> list[dict[str, Any]]:
     """Sensor table rows.
 
     Duplicate decodes are folded into their canonical sensor by default --
     listing them as peers would triple the table and imply vehicles that do
-    not exist.
+    not exist. Sensors hidden by hand are folded out the same way, for the
+    same reason: they are known, and knowing about them is the point of
+    hiding them.
     """
     names = {v.pk: v.display for v in db.list_vehicles()}
     sensors = db.list_sensors()
@@ -356,6 +389,8 @@ def sensor_rows(db: Database, include_aliases: bool = False) -> list[dict[str, A
     out = []
     for sensor in sensors:
         if sensor.alias_of is not None and not include_aliases:
+            continue
+        if sensor.ignored and not include_ignored:
             continue
         row = sensor_row(db, sensor.pk, residents, duty_cycles, bands_by_sensor)
         row["vehicle_name"] = names.get(sensor.vehicle_id) if sensor.vehicle_id else None
@@ -386,7 +421,7 @@ def alias_groups(db: Database) -> list[dict[str, Any]]:
     ]
 
 
-def heard_now(db: Database) -> list[dict[str, Any]]:
+def heard_now(db: Database, include_ignored: bool = False) -> list[dict[str, Any]]:
     """Sensors with a sighting still open, newest first.
 
     Duplicate decodes are folded away, as everywhere else: listing them would
@@ -399,6 +434,8 @@ def heard_now(db: Database) -> list[dict[str, Any]]:
     for sighting in db.list_open_sightings():
         sensor = db.get_sensor(sighting.sensor_pk)
         if sensor is None or sensor.alias_of is not None:
+            continue
+        if sensor.ignored and not include_ignored:
             continue
         # Carry the same reading fields the rest of the UI shows, so "heard
         # now" is not the one table where pressure and band are missing.
@@ -430,14 +467,67 @@ def heard_now(db: Database) -> list[dict[str, Any]]:
     return out
 
 
-def events(
-    db: Database,
-    start: float | None = None,
-    end: float | None = None,
-    vehicle_id: int | None = None,
-    limit: int = 500,
-) -> list[dict[str, Any]]:
-    """Flat appear / last-heard log, one row per sensor sighting."""
+def heard_now_groups(db: Database) -> dict[str, Any]:
+    """What is audible, gathered the way the log gathers it.
+
+    One entry per vehicle rather than one per wheel, with unassigned sensors
+    listed separately. A car going past is one thing happening, and the flat
+    list made four wheels of the same car look like four events -- which is
+    exactly the confusion this page exists to resolve when you are matching a
+    car you can see to what the receiver is hearing.
+    """
+    rows = heard_now(db)
+    vehicles: dict[int, dict[str, Any]] = {}
+    loose: list[dict[str, Any]] = []
+    for row in rows:
+        if row["vehicle_id"] is None:
+            loose.append(row)
+            continue
+        group = vehicles.setdefault(
+            int(row["vehicle_id"]),
+            {
+                "vehicle_id": int(row["vehicle_id"]),
+                "vehicle_name": row["vehicle_name"]
+                or f"Unnamed vehicle #{row['vehicle_id']}",
+                "named": bool(row["vehicle_name"]),
+                "sensors": [],
+            },
+        )
+        group["sensors"].append(row)
+
+    known = {
+        int(r["vehicle_id"]): int(r["n"])
+        for r in db.query(
+            """
+            SELECT vehicle_id, COUNT(*) AS n FROM sensors
+             WHERE vehicle_id IS NOT NULL AND alias_of IS NULL AND ignored = 0
+             GROUP BY vehicle_id
+            """
+        )
+    }
+    out = []
+    for group in vehicles.values():
+        group["wheels_known"] = known.get(group["vehicle_id"])
+        group["started_at"] = min(s["started_at"] for s in group["sensors"])
+        group["last_reading_at"] = max(s["last_reading_at"] for s in group["sensors"])
+        out.append(group)
+    out.sort(key=lambda g: g["last_reading_at"], reverse=True)
+    loose.sort(key=lambda r: r["last_reading_at"], reverse=True)
+    return {"vehicles": out, "loose": loose, "count": len(rows)}
+
+
+def _sighting_filters(
+    start: float | None,
+    end: float | None,
+    vehicle_id: int | None,
+    sensor_pk: int | None,
+    include_ignored: bool,
+) -> tuple[str, list[Any]]:
+    """The WHERE shared by the sighting log, the pass log and their counts.
+
+    One definition, so the count under the table can never disagree with the
+    table, and the CSV can never disagree with either.
+    """
     clauses = []
     params: list[Any] = []
     if start is not None:
@@ -449,7 +539,55 @@ def events(
     if vehicle_id is not None:
         clauses.append("n.vehicle_id = ?")
         params.append(vehicle_id)
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    if sensor_pk is not None:
+        # Follow the alias link, so filtering to a sensor from its own page
+        # includes the bursts its duplicate decoders logged.
+        clauses.append("COALESCE(n.alias_of, n.pk) = ?")
+        params.append(sensor_pk)
+    if not include_ignored:
+        clauses.append("n.ignored = 0")
+    return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
+
+
+def count_events(
+    db: Database,
+    start: float | None = None,
+    end: float | None = None,
+    vehicle_id: int | None = None,
+    sensor_pk: int | None = None,
+    include_ignored: bool = False,
+) -> int:
+    """How many sightings match, so a truncated page can say so."""
+    where, params = _sighting_filters(start, end, vehicle_id, sensor_pk, include_ignored)
+    row = db.query_one(
+        f"""
+        SELECT COUNT(*) AS n
+          FROM sightings s
+          JOIN sensors n ON n.pk = s.sensor_pk
+          {where}
+        """,
+        tuple(params),
+    )
+    return int(row["n"]) if row else 0
+
+
+def events(
+    db: Database,
+    start: float | None = None,
+    end: float | None = None,
+    vehicle_id: int | None = None,
+    limit: int = 500,
+    sensor_pk: int | None = None,
+    include_ignored: bool = False,
+) -> list[dict[str, Any]]:
+    """Flat appear / last-heard log, one row per sensor sighting.
+
+    The raw view: what the receiver actually decoded, unmerged. Kept as a peer
+    of the pass log rather than an internal detail, because matching a car you
+    watched go past to the transmitters heard at that moment is done against
+    these rows, not against the merged summary.
+    """
+    where, params = _sighting_filters(start, end, vehicle_id, sensor_pk, include_ignored)
     params.append(limit)
 
     rows = db.query(
@@ -490,6 +628,138 @@ def events(
         }
         for r in rows
     ]
+
+
+def vehicle_passes(
+    db: Database,
+    join_gap: float,
+    start: float | None = None,
+    end: float | None = None,
+    vehicle_id: int | None = None,
+    sensor_pk: int | None = None,
+    limit: int = 500,
+    scan_limit: int = 20000,
+    include_ignored: bool = False,
+) -> list[dict[str, Any]]:
+    """The traffic log: one row per vehicle going past, newest first.
+
+    ``events`` answers "what did the receiver decode"; this answers "what drove
+    by", which is the question the program exists for. Four wheels rolling
+    past are one pass here and four rows there, and each pass carries the
+    sightings it was built from so the raw evidence is one click away.
+
+    A sensor with no vehicle still gets a pass of its own -- an unclustered
+    wheel is a thing that drove past, and dropping it would quietly under-count
+    the traffic.
+    """
+    where, params = _sighting_filters(
+        start, end, vehicle_id, sensor_pk, include_ignored
+    )
+    params.append(scan_limit)
+    rows = db.query(
+        f"""
+        SELECT s.pk, s.started_at, s.last_reading_at, s.ended_at, s.reading_count,
+               s.max_rssi, s.freq_mhz, n.pk AS sensor_pk, n.model, n.sensor_id,
+               n.wheel_label, n.vehicle_id, v.name AS vehicle_name
+          FROM sightings s
+          JOIN sensors n ON n.pk = s.sensor_pk
+          LEFT JOIN vehicles v ON v.pk = n.vehicle_id
+          {where}
+         ORDER BY s.started_at DESC
+         LIMIT ?
+        """,
+        params,
+    )
+
+    # How many wheels each vehicle is known to have, so a pass can say "3 of 4"
+    # -- a vehicle that usually shows four and showed one is worth noticing.
+    known: dict[int, int] = {
+        int(r["vehicle_id"]): int(r["n"])
+        for r in db.query(
+            """
+            SELECT vehicle_id, COUNT(*) AS n FROM sensors
+             WHERE vehicle_id IS NOT NULL AND alias_of IS NULL AND ignored = 0
+             GROUP BY vehicle_id
+            """
+        )
+    }
+
+    # Group before merging: sightings only belong to the same pass if they
+    # belong to the same vehicle. Unassigned sensors group by themselves.
+    groups: dict[tuple[str, int], list[Any]] = {}
+    for row in rows:
+        key = (
+            ("v", int(row["vehicle_id"]))
+            if row["vehicle_id"] is not None
+            else ("s", int(row["sensor_pk"]))
+        )
+        groups.setdefault(key, []).append(row)
+
+    out: list[dict[str, Any]] = []
+    for (kind, ident), items in groups.items():
+        for run in merge_runs(
+            items,
+            join_gap,
+            bounds=lambda r: (float(r["started_at"]), r["ended_at"]),
+        ):
+            members = sorted(run["items"], key=lambda r: float(r["started_at"]))
+            newest = max(members, key=lambda r: float(r["last_reading_at"]))
+            rssis = [r["max_rssi"] for r in members if r["max_rssi"] is not None]
+            wheels = {int(r["sensor_pk"]) for r in members}
+            started = float(run["started_at"])
+            ended = run["ended_at"]
+            last_reading = max(float(r["last_reading_at"]) for r in members)
+            out.append(
+                {
+                    "vehicle_id": ident if kind == "v" else None,
+                    "vehicle_name": (
+                        (newest["vehicle_name"] or f"Unnamed vehicle #{ident}")
+                        if kind == "v"
+                        else None
+                    ),
+                    "sensor_pk": ident if kind == "s" else None,
+                    "display": (
+                        f"{newest['model']}/{newest['sensor_id']}"
+                        if kind == "s"
+                        else None
+                    ),
+                    "started_at": started,
+                    "started_at_iso": to_iso(started),
+                    "ended_at": ended,
+                    "last_reading_at": last_reading,
+                    "last_reading_at_iso": to_iso(last_reading),
+                    "open": ended is None,
+                    # Ends at last heard, never at an inferred departure.
+                    "duration": last_reading - started,
+                    "reading_count": sum(int(r["reading_count"]) for r in members),
+                    "wheels_heard": len(wheels),
+                    "wheels_known": known.get(ident) if kind == "v" else None,
+                    "max_rssi": max(rssis) if rssis else None,
+                    "band": band_label(newest["freq_mhz"]),
+                    "sightings": [
+                        {
+                            "pk": int(r["pk"]),
+                            "sensor_pk": int(r["sensor_pk"]),
+                            "display": f"{r['model']}/{r['sensor_id']}",
+                            "wheel_label": r["wheel_label"],
+                            "started_at": float(r["started_at"]),
+                            "started_at_iso": to_iso(float(r["started_at"])),
+                            "last_reading_at": float(r["last_reading_at"]),
+                            "last_reading_at_iso": to_iso(float(r["last_reading_at"])),
+                            "open": r["ended_at"] is None,
+                            "duration": float(r["last_reading_at"])
+                            - float(r["started_at"]),
+                            "reading_count": int(r["reading_count"]),
+                            "max_rssi": r["max_rssi"],
+                            "band": band_label(r["freq_mhz"]),
+                        }
+                        for r in members
+                    ],
+                }
+            )
+
+    out.sort(key=lambda p: p["started_at"], reverse=True)
+    return out[:limit]
 
 
 def _thin(rows: list[Any], limit: int) -> list[Any]:
@@ -574,7 +844,7 @@ def activity(
             # Duplicate decodes are one transmitter, not two.
             "COUNT(DISTINCT COALESCE(s.alias_of, s.pk)) AS sensors "
             "FROM readings r JOIN sensors s ON s.pk = r.sensor_pk "
-            "WHERE r.ts >= ? AND r.ts < ? GROUP BY b",
+            "WHERE s.ignored = 0 AND r.ts >= ? AND r.ts < ? GROUP BY b",
             (start, width, start, end),
         )
     }
@@ -583,7 +853,8 @@ def activity(
         for r in db.query(
             "SELECT CAST((g.started_at - ?) / ? AS INTEGER) AS b, COUNT(*) AS passes "
             "FROM sightings g JOIN sensors s ON s.pk = g.sensor_pk "
-            "WHERE s.alias_of IS NULL AND g.started_at >= ? AND g.started_at < ? "
+            "WHERE s.alias_of IS NULL AND s.ignored = 0 "
+            "AND g.started_at >= ? AND g.started_at < ? "
             "GROUP BY b",
             (start, width, start, end),
         )

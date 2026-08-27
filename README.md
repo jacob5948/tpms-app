@@ -198,11 +198,18 @@ automatically, so your correction survives the next clustering run.
 
 ## Web UI
 
-- **Live** — SSE feed of incoming readings and what is audible right now,
-  updated in place without reloading the page.
-- **Vehicles** — cards per vehicle with per-wheel pressure/temperature; detail
-  pages with **comings and goings**, a pressure chart, appearance history, and
-  rename/merge/split/pin.
+Two words carry the whole UI: a **pass** is one vehicle going by, a **sighting**
+is one transmitter being heard. A pass is its wheels' sightings merged.
+
+- **Live** — what is audible right now, grouped by vehicle, above an SSE feed
+  of incoming readings, both updated in place without reloading. Because the
+  usual reason to watch this page is a car you can actually see, each group
+  carries an inline name field and each ungrouped sensor an assign control:
+  the moment to say what something is, is while it is still in front of you.
+- **Vehicles** — cards per vehicle with per-wheel pressure/temperature. The
+  tiles are filter toggles, so **Needs review** and **Provisional** are the
+  worklist of what clustering is unsure about. Detail pages carry **comings and
+  goings**, a pressure chart, pass history, and rename/merge/split/pin/unpin.
 - **Sensors** — every transmitter heard, with manual assignment. Sort by
   **First heard**, or hit the **New today** tile, to see what turned up while
   you were out: four transmitters first heard the minute you got home is
@@ -211,14 +218,35 @@ automatically, so your correction survives the next clustering run.
   its sightings, its duplicate decodes, the last raw packet, and **what it was
   heard alongside**. Every mention of a sensor anywhere links here, so no table
   has to carry every column.
-- **Events** — the appear / last-heard log, filterable, with CSV export.
+- **Log** — the traffic history, in two peer views over one filter:
+  **vehicle passes** (the default: one row per car going by, expandable to the
+  sightings behind it) and **sensor sightings** (the raw decoded rows). Both
+  filter by time, vehicle or sensor, and export to CSV in the shape on screen.
+
+### Correcting a grouping
+
+Clustering guesses; you correct it. Everything it flags is reachable from the
+tiles on Vehicles, and every correction is reversible:
+
+- **Split** — tick several sensors on a vehicle's page and move them out into a
+  vehicle of their own. This is the fix for an oversized or mixed-family
+  cluster, which is almost always two cars that travel together.
+- **Merge** — fold another vehicle into this one. Asks first: it reparents
+  every sensor involved and the other vehicle's name does not come back.
+- **Pin / unpin** — a manual placement is pinned so clustering cannot undo it.
+  Unpinning hands the sensor back.
+- **Hide** — for a transmitter that is real but not interesting, such as a
+  neighbour's car parked in range. It leaves the sensor list, the live view,
+  the activity charts and clustering, but keeps recording and keeps its own
+  page. Hidden sensors are still listed behind the **Hidden** tile, and asking
+  for one by name still answers. This is *not* deletion — that is `tpms purge`.
 
 A vehicle's page opens with **comings and goings**: a strip showing when it was
-audible — each block one appearance, from the first wheel heard to the last —
-above a count of appearances per bucket. Two shapes of the same fact, because
+audible — each block one pass, from the first wheel heard to the last —
+above a count of passes per bucket. Two shapes of the same fact, because
 neither works alone: a 90-second drive-by is sub-pixel across a month, and the
 bucket counts that stay readable at that zoom have lost the individual visits.
-The Appearances table below lists the same intervals exactly.
+The Passes table below lists the same intervals exactly.
 
 The Live page opens with an **activity chart**: readings per bucket as bars,
 and below it, on its own plot sharing the same window, how many distinct
@@ -255,7 +283,7 @@ that caused it rather than guessed at.
 
 Every reading carries the frequency `rtl_433` decoded it at, and every sighting
 records the band it was heard on, so the **Band** column on Sensors, Vehicles
-and Events (and the `band` column in CSV exports) answers "315 or 433.92?" per
+and the Log (and the `band` column in CSV exports) answers "315 or 433.92?" per
 sensor. Measured frequencies scatter either side of the tuned band — 314.98 and
 315.03 are the same 315 MHz sensor — so they are snapped to the nearest known
 band before being counted; anything else is shown as measured.

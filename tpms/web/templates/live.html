@@ -11,9 +11,11 @@
 </p>
 
 <div class="stats primary">
-  {{ m.stat('Audible now', heard | length, 'sensors with an open sighting') }}
-  {{ m.stat('Vehicles present', heard | map(attribute='vehicle_id') | select | unique | list | length,
+  {{ m.stat('Vehicles present', heard.vehicles | length,
             'with at least one wheel audible') }}
+  {{ m.stat('Sensors audible', heard.count,
+            (heard.loose | length ~ ' not in a vehicle') if heard.loose
+            else 'all grouped into vehicles') }}
   <div class="stat" id="rate-stat">
     <div class="k">Readings/min</div>
     <div class="v" id="rate">—</div>
@@ -33,13 +35,25 @@
   <p class="sub" id="activity-asof">&nbsp;</p>
 </div>
 
-<h2>Heard now</h2>
-<div class="panel" id="heard-panel">
+<div class="head-row">
+  <h2>Heard now</h2>
+  <a class="quiet" href="/events">Open the log &rarr;</a>
+</div>
+<p class="sub">
+  Grouped by vehicle, so a car going past reads as one thing rather than four.
+  If you can see what is passing, name it or claim its sensors here &mdash;
+  that is far easier now than from the log tomorrow.
+</p>
+<div class="panel" id="heard-panel" aria-live="polite" aria-label="Currently audible">
   {% include "_heard.html" %}
 </div>
 
 <h2>Incoming readings</h2>
-<div class="panel scroll" id="feed">
+<p class="sub">
+  Every decoded transmission as it lands, unmerged &mdash; the raw evidence
+  behind everything above.
+</p>
+<div class="panel scroll" id="feed" aria-live="polite" aria-label="Incoming readings">
   <table data-nosort>
     <thead><tr>
       <th>Time</th><th>Sensor</th><th>Vehicle</th>
@@ -165,9 +179,12 @@ let pending = null;
 function refreshHeard() {
   clearTimeout(pending);
   pending = setTimeout(async () => {
+    const panel = document.getElementById('heard-panel');
+    // Never swap the panel out from under someone naming what they can see
+    // out of the window. The refresh will come round again.
+    if (panel.contains(document.activeElement)) return;
     try {
       const html = await (await fetch('/api/heard-now.html')).text();
-      const panel = document.getElementById('heard-panel');
       panel.innerHTML = html;
       window.initSortable(panel);   // the swapped-in table needs headers wired
     } catch (e) { /* the SSE pill already shows the connection state */ }
