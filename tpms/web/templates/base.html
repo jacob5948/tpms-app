@@ -33,7 +33,7 @@
 </header>
 <main>{% block body %}{% endblock %}</main>
 <div id="toasts" aria-live="polite"></div>
-{% if flash %}<div id="flash" hidden>{{ flash }}</div>{% endif %}
+{% if flash %}<div id="flash" hidden data-kind="{{ flash_kind | default('ok') }}">{{ flash }}</div>{% endif %}
 <script>
 // Shared SSE connection. Pages opt in by defining window.onTpmsEvent.
 (function () {

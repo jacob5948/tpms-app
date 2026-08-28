@@ -83,6 +83,27 @@ program, defaulting to "stay here" — a non-action — with "split" and
 "unassign" mixed in among the destinations. A per-row control is for what is
 true of that row alone: on that table, only pinning.
 
+**A bar of actions sits inside the set it acts on.** The tick, the table and
+the buttons that read the ticks are one object, so they share one panel and
+the bar is its footer. Rendered as a sibling it had no ground of its own and
+stood equidistant between the panel above and the panel below, which made it
+read as the heading of the wrong one.
+
+**A refusal returns the page, not an error.** The bulk handlers live under
+`/api/`, and that path answers with JSON, so a browser form posted with
+nothing ticked used to land on a bare `{"detail": ...}` — no shell, no nav,
+and every tick just made gone. A rejected mutation is the page saying no: it
+redirects back with the reason, and the flash carries whether it is an outcome
+or a refusal so a turned-down action cannot arrive coloured like a save. Only
+a request that asked for JSON gets a 400.
+
+**Buttons weigh what they cost.** Three tiers, no more: `primary` for the
+thing the page is for, the default for an ordinary action, `ghost` for a
+control that repeats once per row. `danger` is for the one action that
+destroys something. Eleven identical grey buttons in one region is not a
+hierarchy, and the loudest control on the page should not be the one that
+changes a name.
+
 **Reshaping vehicles asks first.** Merge and split reparent every sensor
 involved and cannot be undone in one click, so they carry `data-confirm`.
 Labelling a wheel does not, because it changes nothing else — and must not:

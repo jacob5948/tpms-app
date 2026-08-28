@@ -36,6 +36,10 @@ KEEPALIVE_SECONDS = 15.0
 #: shown it.
 FLASH_COOKIE = "tpms_flash"
 
+#: Whether that message is an outcome or a refusal. Separate from the message
+#: so a turned-down action cannot arrive looking like a save that worked.
+FLASH_KIND_COOKIE = "tpms_flash_kind"
+
 #: Set by static/forms.js on the submissions it handles itself. Those want the
 #: outcome as JSON rather than a whole page they are not going to render.
 ASYNC_HEADER = "x-tpms-async"
@@ -142,9 +146,11 @@ def create_app(service: Service) -> FastAPI:
         context.setdefault("nav", name.replace(".html", ""))
         flash = request.cookies.get(FLASH_COOKIE)
         context.setdefault("flash", unquote(flash) if flash else None)
+        context.setdefault("flash_kind", request.cookies.get(FLASH_KIND_COOKIE) or "ok")
         response = templates.TemplateResponse(request, name, context)
         if flash:
             response.delete_cookie(FLASH_COOKIE, path="/")
+            response.delete_cookie(FLASH_KIND_COOKIE, path="/")
         return response
 
     # -- error pages --------------------------------------------------------
@@ -158,7 +164,7 @@ def create_app(service: Service) -> FastAPI:
         return templates.TemplateResponse(
             request,
             "error.html",
-            {"nav": "", "flash": None, "status": exc.status_code,
+            {"nav": "", "flash": None, "flash_kind": "ok", "status": exc.status_code,
              "detail": exc.detail},
             status_code=exc.status_code,
         )
@@ -174,7 +180,7 @@ def create_app(service: Service) -> FastAPI:
         return templates.TemplateResponse(
             request,
             "error.html",
-            {"nav": "events", "flash": None, "status": 400, "detail": detail,
+            {"nav": "events", "flash": None, "flash_kind": "ok", "status": 400, "detail": detail,
              "back": "/events"},
             status_code=400,
         )
@@ -467,6 +473,7 @@ def create_app(service: Service) -> FastAPI:
         fallback: str = "/vehicles",
         message: str | None = None,
         keep_referer: bool = True,
+        kind: str = "ok",
         **detail: Any,
     ):
         """Answer a mutation.
@@ -488,7 +495,23 @@ def create_app(service: Service) -> FastAPI:
             response.set_cookie(
                 FLASH_COOKIE, quote(message), path="/", max_age=30, samesite="lax"
             )
+            response.set_cookie(
+                FLASH_KIND_COOKIE, kind, path="/", max_age=30, samesite="lax"
+            )
         return response
+
+    def _refuse(request: Request, fallback: str, message: str):
+        """Turn down a mutation without throwing away the page it came from.
+
+        A bulk action with nothing ticked used to raise, and because these
+        handlers live under /api/ the error handler answered a browser form
+        post with raw JSON: no shell, no nav, and every tick the user had just
+        made gone. A refusal is not a broken URL -- it is the page saying no,
+        so it goes back to the page and says so there.
+        """
+        if request.headers.get(ASYNC_HEADER):
+            return JSONResponse({"ok": False, "message": message}, status_code=400)
+        return _back(request, fallback, message, kind="err")
 
     def _vehicle_name(vehicle_id: int) -> str:
         vehicle = db.get_vehicle(vehicle_id)
@@ -558,10 +581,15 @@ def create_app(service: Service) -> FastAPI:
             raise HTTPException(400, "not a sensor") from None
         members = {s.pk for s in db.sensors_for_vehicle(vehicle_id)}
         chosen = wanted & members
+        here = f"/vehicles/{vehicle_id}"
         if not chosen:
-            raise HTTPException(400, "select the sensors to split out")
+            return _refuse(request, here, "Tick the sensors to split out first.")
         if chosen == members:
-            raise HTTPException(400, "that would move every sensor, not split them")
+            return _refuse(
+                request, here,
+                "That is every sensor, which is a rename rather than a split. "
+                "Leave at least one wheel here.",
+            )
 
         target = db.create_vehicle(now_ts(), auto_generated=False)
         for pk in sorted(chosen):
@@ -572,10 +600,16 @@ def create_app(service: Service) -> FastAPI:
         # The split is the review being resolved.
         db.execute("UPDATE vehicles SET needs_review = 0 WHERE pk = ?", (vehicle_id,))
         db.delete_empty_vehicles()
+        # Land on the vehicle that was just created, not back on the one it
+        # came out of: it has no name yet, and naming it is the next thing the
+        # user is going to do. keep_referer would have kept them here, which
+        # left the flash naming a vehicle they had no way to reach.
         return _back(
             request,
             f"/vehicles/{target}",
-            f"Split {len(chosen)} sensor(s) out into {_vehicle_name(target)}.",
+            f"Split {len(chosen)} sensor(s) out of {_vehicle_name(vehicle_id)} "
+            f"into this vehicle. Give it a name.",
+            keep_referer=False,
         )
 
     @app.post("/api/vehicles/{vehicle_id}/move")
@@ -595,12 +629,13 @@ def create_app(service: Service) -> FastAPI:
         except ValueError:
             raise HTTPException(400, "not a sensor") from None
         chosen = wanted & {s.pk for s in db.sensors_for_vehicle(vehicle_id)}
+        here = f"/vehicles/{vehicle_id}"
         if not chosen:
-            raise HTTPException(400, "tick the sensors to move first")
+            return _refuse(request, here, "Tick the sensors to move first.")
 
         raw = (form.get("target") or "").strip()
         if not raw:
-            raise HTTPException(400, "pick where to move them")
+            return _refuse(request, here, "Choose where to move them first.")
         if raw == "none":
             target = None
         else:
@@ -611,7 +646,7 @@ def create_app(service: Service) -> FastAPI:
             if db.get_vehicle(target) is None:
                 raise HTTPException(404, "vehicle not found")
             if target == vehicle_id:
-                raise HTTPException(400, "those sensors are already here")
+                return _refuse(request, here, "Those sensors are already here.")
 
         for pk in sorted(chosen):
             db.set_sensor_vehicle(pk, target)

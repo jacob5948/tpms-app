@@ -49,7 +49,7 @@
   {% endif %}
   <p class="spaced-sm">
     Tick the sensors that belong to the other vehicle in the table below and
-    press <strong>Split selected out</strong>, or clear the flag if the
+    press <strong>Split into a new vehicle</strong>, or clear the flag if the
     grouping is right.
   </p>
   <form class="inline" method="post" data-busy="Clearing…"
@@ -74,22 +74,30 @@
 
 <h2>Sensors</h2>
 <p class="sub">
-  The wheels grouped into this vehicle. Correcting a grouping is the point of
-  this table: label a wheel, or tick the ones that do not belong and send them
-  somewhere else.
+  The wheels grouped into this vehicle. Label one, or tick the ones that do
+  not belong and send them somewhere else.
 </p>
 
 {# One form around the table, so the same tick does for every action that
    takes a set of sensors; the buttons choose the action with formaction. The
    per-row controls are their own forms, declared below -- HTML forbids
    nesting them here. #}
-<form method="post" action="/api/vehicles/{{ vehicle.pk }}/split">
-<div class="panel scroll">
-  <table>
+<form method="post" data-selection action="/api/vehicles/{{ vehicle.pk }}/split">
+{# The table, the bar that acts on it and the note about what the bar does are
+   one object, so they sit in one panel. The bar used to be a sibling of it,
+   which left it floating between two bordered boxes belonging to neither. #}
+<div class="panel">
+  <div class="scroll">
+  <table class="has-select">
     <thead><tr>
-      <th></th>
-      <th>Sensor</th><th>Wheel</th><th>Band</th><th class="num">psi</th><th class="num">&deg;C</th>
-      <th>Battery</th><th class="num">RSSI</th><th class="num">Readings</th><th>Last heard</th><th></th>
+      <th><input type="checkbox" data-tick-all aria-label="Select every sensor"></th>
+      <th>Sensor</th><th>Band</th><th class="num">psi</th><th class="num">&deg;C</th>
+      <th>Battery</th><th class="num">RSSI</th><th class="num">Readings</th>
+      <th>Last heard</th>
+      {# Identity, then readings, then the controls. An editable field between
+         the sensor and its pressure put a form in the middle of the numbers
+         the table exists to let you compare. #}
+      <th>Wheel</th><th></th>
     </tr></thead>
     <tbody>
       {% for s in sensors %}
@@ -97,25 +105,31 @@
         <td><input type="checkbox" name="sensor" value="{{ s.pk }}"
                    aria-label="Select {{ s.display }}"></td>
         <td>{{ m.sensor_cell(s) }}</td>
-        <td class="actions">
-          <label class="sr-only" for="wheel-{{ s.pk }}">Wheel label for {{ s.display }}</label>
-          <input form="wheel-form-{{ s.pk }}" id="wheel-{{ s.pk }}" type="text"
-                 name="wheel_label" value="{{ s.wheel_label or '' }}"
-                 placeholder="e.g. FL" size="6">
-          <button form="wheel-form-{{ s.pk }}" type="submit">Set</button>
-        </td>
         {{ m.band_cell(s.bands) }}
         {{ m.reading_cells(s) }}
         <td class="num">{{ s.reading_count }}</td>
         {{ m.when(s.last_seen) }}
+        {# data-sort, because the cell holds a field and the sorter falls back
+           to the cell's text -- which is empty for every row, so the header
+           offered an ordering it could not deliver. #}
+        <td class="actions" data-sort="{{ s.wheel_label or '' }}">
+          <label class="sr-only" for="wheel-{{ s.pk }}">Wheel label for {{ s.display }}</label>
+          <input form="wheel-form-{{ s.pk }}" id="wheel-{{ s.pk }}" type="text"
+                 name="wheel_label" value="{{ s.wheel_label or '' }}"
+                 list="wheel-names" placeholder="e.g. FL" size="8">
+          <button class="ghost" form="wheel-form-{{ s.pk }}" type="submit"
+                  aria-label="Save the wheel label for {{ s.display }}">Set</button>
+        </td>
         <td class="actions">
           {# Where a sensor goes is a bulk action, taken below. What is left
              on the row is the one thing that is only ever about this sensor:
              whether clustering may move it. The handler has always supported
              it; nothing rendered it, so a sensor placed by hand could never
              be handed back. #}
-          <button form="pin-form-{{ s.pk }}" type="submit" name="pinned"
+          <button class="ghost" form="pin-form-{{ s.pk }}" type="submit" name="pinned"
                   value="{{ 0 if s.pinned else 1 }}"
+                  aria-pressed="{{ 'true' if s.pinned else 'false' }}"
+                  aria-label="{{ 'Unpin' if s.pinned else 'Pin' }} {{ s.display }}"
                   title="{{ 'Let clustering place this sensor again' if s.pinned
                             else 'Keep clustering from moving this sensor' }}">
             {{ 'Unpin' if s.pinned else 'Pin' }}
@@ -125,35 +139,68 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
+  {# Every action that takes a set of sensors, in one bar under the set. #}
+  <div class="row bulk">
+    <strong class="field-title" data-tick-count>Tick the sensors to act on:</strong>
+    {% if sensors | length > 1 %}
+    <button type="submit" data-busy="Splitting…"
+            data-needs="input[name=sensor]:checked" data-needs-remainder
+            data-needs-message="Tick the sensors to split out first."
+            formaction="/api/vehicles/{{ vehicle.pk }}/split"
+            data-confirm="Move the ticked sensors into a new vehicle of their own?">
+      Split into a new vehicle
+    </button>
+    <span class="sub">or</span>
+    {% endif %}
+    <label class="sr-only" for="move-target">Move the ticked sensors to</label>
+    {% if all_vehicles %}
+    <select id="move-target" name="target" data-gate>
+      <option value="" selected disabled>Choose a destination&hellip;</option>
+      {# "Unassign" is not one of the destinations, and listing it among them
+         is the thing the per-row picker was taken out for. #}
+      <optgroup label="Move to a vehicle">
+        {% for other in all_vehicles %}
+        <option value="{{ other.pk }}">{{ other.display }}</option>
+        {% endfor %}
+      </optgroup>
+      <optgroup label="Or take them off vehicles">
+        <option value="none">no vehicle &mdash; unassign them</option>
+      </optgroup>
+    </select>
+    <button type="submit" data-busy="Moving…"
+            data-needs="input[name=sensor]:checked" data-gated-by="#move-target"
+            data-needs-message="Tick the sensors to move first."
+            formaction="/api/vehicles/{{ vehicle.pk }}/move"
+            data-confirm="Move the ticked sensors off {{ vehicle.display }}?">
+      Move
+    </button>
+    {% else %}
+    {# Nothing to move them to, so the picker would promise destinations that
+       do not exist. One verb is the whole of what can be done. #}
+    <input type="hidden" name="target" value="none">
+    <button type="submit" data-busy="Moving…"
+            data-needs="input[name=sensor]:checked"
+            data-needs-message="Tick the sensors to unassign first."
+            formaction="/api/vehicles/{{ vehicle.pk }}/move"
+            data-confirm="Take the ticked sensors off {{ vehicle.display }}?">
+      Unassign
+    </button>
+    {% endif %}
+  </div>
+  <p class="sub">
+    Either way they are pinned where they land, so the next clustering run
+    leaves them there.
+  </p>
 </div>
-{# Every action that takes a set of sensors, in one bar under the set. #}
-<div class="row bulk">
-  <strong class="field-title">With the ticked sensors:</strong>
-  <button type="submit" data-busy="Splitting…"
-          formaction="/api/vehicles/{{ vehicle.pk }}/split"
-          data-confirm="Move the ticked sensors into a new vehicle of their own?">
-    Split into a new vehicle
-  </button>
-  <span class="sub">or</span>
-  <label class="sr-only" for="move-target">Move the ticked sensors to</label>
-  <select id="move-target" name="target">
-    <option value="">Move to&hellip;</option>
-    {% for other in all_vehicles %}
-    <option value="{{ other.pk }}">{{ other.display }}</option>
-    {% endfor %}
-    <option value="none">no vehicle &mdash; unassign them</option>
-  </select>
-  <button type="submit" data-busy="Moving…"
-          formaction="/api/vehicles/{{ vehicle.pk }}/move"
-          data-confirm="Move the ticked sensors off {{ vehicle.display }}?">
-    Move
-  </button>
-</div>
-<p class="sub spaced-sm">
-  Either way they are pinned where they land, so the next clustering run
-  leaves them there.
-</p>
 </form>
+
+{# Offered, not enforced: a wheel label is free text, but four vehicles
+   labelled FL, fl, "front left" and Front-Left are four vocabularies. #}
+<datalist id="wheel-names">
+  <option value="FL"><option value="FR"><option value="RL"><option value="RR">
+  <option value="spare">
+</datalist>
 
 {# Declared outside the split form: HTML forbids nesting, so the row controls
    reach them by `form=` instead. #}
@@ -166,18 +213,25 @@
 
 {% if all_vehicles %}
 <div class="panel">
-  <form class="row" method="post" data-busy="Merging…"
-        action="/api/vehicles/{{ vehicle.pk }}/merge"
-        data-confirm="Move every sensor from the chosen vehicle into {{ vehicle.display }}? The other vehicle is removed, and this cannot be undone in one click.">
-    <label for="merge-other"><strong class="field-title">Merge another vehicle into this one</strong></label>
-    <select id="merge-other" name="other">
-      {% for other in all_vehicles %}<option value="{{ other.pk }}">{{ other.display }}</option>{% endfor %}
-    </select>
-    <button type="submit">Merge</button>
-  </form>
+  <div class="row">
+    <div>
+      <div class="k">Merge</div>
+      <div class="current">Pull another vehicle's wheels into this one</div>
+    </div>
+    <form class="inline right" method="post" data-busy="Merging…"
+          action="/api/vehicles/{{ vehicle.pk }}/merge"
+          data-confirm="Move every sensor from the chosen vehicle into {{ vehicle.display }}? The other vehicle is removed, and its name and notes are not recoverable.">
+      <label class="sr-only" for="merge-other">Vehicle to merge into this one</label>
+      <select id="merge-other" name="other">
+        {% for other in all_vehicles %}<option value="{{ other.pk }}">{{ other.display }}</option>{% endfor %}
+      </select>
+      {# The only control on this page that destroys something. #}
+      <button class="danger" type="submit">Merge</button>
+    </form>
+  </div>
   <p class="sub spaced-sm">
     The chosen vehicle's sensors move here and it is removed. Splitting them
-    back out later is possible, but its name and notes are not recoverable.
+    back out later is possible, but its name and notes are not.
   </p>
 </div>
 {% endif %}

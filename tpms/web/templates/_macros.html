@@ -10,7 +10,7 @@
 <span class="ident" data-wheel-slot>
   {%- if present %}<span class="dot live" title="heard now"></span>{% endif -%}
   <a class="mono" href="/sensors/{{ pk }}">{{ display }}</a>
-  {%- if wheel %} <span class="pill wheel">{{ wheel }}</span>{% endif -%}
+  {%- if wheel %} <span class="pill wheel-label">{{ wheel }}</span>{% endif -%}
   {%- if pinned %} <span class="pill" title="Manually placed; clustering will not move it">pinned</span>{% endif -%}
   {%- if aliases %} <span class="pill" title="{{ aliases }} duplicate decode(s) folded in">+{{ aliases }}</span>{% endif -%}
   {%- if resident %} <span class="pill warn" title="Audible most of the time, so it is parked in range rather than driving past. It cannot seed a single-pass grouping.">resident</span>{% endif -%}

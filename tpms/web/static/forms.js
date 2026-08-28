@@ -55,15 +55,24 @@
   }
 
   /* Keep the wheel pill beside the sensor name in step with the field that
-   * just changed it -- without this the async save is invisible on the row. */
+   * just changed it -- without this the async save is invisible on the row.
+   *
+   * The row forms on the vehicle page are declared outside the table, because
+   * HTML forbids nesting them in the one that wraps it, and their fields reach
+   * them by `form=`. So the row is found through a field the form owns, never
+   * by walking up from the form: closest() from a form that lives at the foot
+   * of the page finds no row and no panel, and the update silently did
+   * nothing. */
   function updateWheelPill(form, label) {
-    const scope = form.closest('tr') || form.closest('.panel');
+    const owned = form.id && document.querySelector('[form="' + form.id + '"]');
+    const from = owned || form;
+    const scope = from.closest('tr') || from.closest('.panel');
     const slot = scope && scope.querySelector('[data-wheel-slot]');
     if (!slot) return;
-    slot.querySelectorAll('.pill.wheel').forEach(p => p.remove());
+    slot.querySelectorAll('.pill.wheel-label').forEach(p => p.remove());
     if (!label) return;
     const pill = document.createElement('span');
-    pill.className = 'pill wheel';
+    pill.className = 'pill wheel-label';
     pill.textContent = label;
     slot.querySelector('a')?.after(document.createTextNode(' '), pill);
   }
@@ -77,6 +86,17 @@
      * one runs points at the wrong thing. */
     const button = event.submitter
       || form.querySelector('button[type="submit"], button:not([type])');
+
+    /* Preconditions first. A bulk action with nothing ticked used to ask
+     * "move the ticked sensors?", take yes for an answer, and only then be
+     * turned down by the server -- a question about a set that was empty when
+     * it was asked. The server still refuses; this just stops the asking. */
+    const needs = button && button.dataset.needs;
+    if (needs && !form.querySelector(needs)) {
+      event.preventDefault();
+      toast(button.dataset.needsMessage || 'Nothing selected.', 'err');
+      return;
+    }
 
     /* Merging and splitting reparent every sensor on a vehicle and cannot be
      * undone with one click, so they ask first. The question belongs to
@@ -100,20 +120,81 @@
       body: new FormData(form),
       headers: { 'X-Tpms-Async': '1' },
     })
-      .then(response => response.ok ? response.json() : Promise.reject(response))
+      .then(response => response.ok ? response.json()
+                                    : response.json().then(body => Promise.reject(body)))
       .then(data => {
         toast(data.message || 'Saved.', 'ok');
         if ('wheel_label' in data) updateWheelPill(form, data.wheel_label);
         form.dispatchEvent(new CustomEvent('tpms:saved', { detail: data, bubbles: true }));
       })
-      .catch(() => toast('Could not save. Is the receiver still running?', 'err'))
+      // A refusal answers in JSON and says why; a dead connection throws an
+      // Error whose message is about fetch, not about the save.
+      .catch(body => toast(
+        (body && !(body instanceof Error) && body.message)
+          || 'Could not save. Is the receiver still running?', 'err'))
       .finally(() => done && done());
   });
 
+  /* The tick and the bar under it.
+   *
+   * Nothing on screen used to connect the two: the checkboxes changed no
+   * appearance, the bar said "with the ticked sensors" whether or not any
+   * were, and pressing an action with an empty set was answered by the
+   * server. A button that is dead until the first tick and lights up on it
+   * teaches the relationship in one click and needs no sentence. All of this
+   * is decoration over a form that still works without it -- the server
+   * refuses the same cases either way. */
+  function wireSelection(form) {
+    const boxes = Array.from(form.querySelectorAll('input[type="checkbox"][name="sensor"]'));
+    if (!boxes.length) return;
+    const count = form.querySelector('[data-tick-count]');
+    const all = form.querySelector('[data-tick-all]');
+    const gated = Array.from(form.querySelectorAll('[data-needs]'));
+    const gates = Array.from(form.querySelectorAll('[data-gate]'));
+
+    function sync() {
+      const ticked = boxes.filter(b => b.checked).length;
+      if (count) {
+        count.textContent = ticked
+          ? 'With the ' + ticked + ' ticked sensor' + (ticked === 1 ? '' : 's') + ':'
+          : 'Tick the sensors to act on:';
+      }
+      if (all) {
+        all.checked = ticked === boxes.length;
+        all.indeterminate = ticked > 0 && ticked < boxes.length;
+      }
+      gated.forEach(button => {
+        // Splitting every sensor is a rename, not a split, and the server has
+        // always said so -- say it here instead of after the click.
+        const whole = button.dataset.needsRemainder !== undefined
+                      && ticked === boxes.length;
+        const gate = button.dataset.gatedBy && form.querySelector(button.dataset.gatedBy);
+        const open = !gate || gate.value;
+        button.disabled = !ticked || whole || !open;
+        button.title = !ticked ? 'Tick a sensor above first'
+          : whole ? 'That is every sensor \u2014 leave at least one wheel here'
+          : !open ? 'Choose where to move them first'
+          : '';
+      });
+    }
+
+    boxes.forEach(b => b.addEventListener('change', sync));
+    gates.forEach(g => g.addEventListener('change', sync));
+    all?.addEventListener('change', () => {
+      boxes.forEach(b => { b.checked = all.checked; });
+      sync();
+    });
+    sync();
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('form[data-selection]').forEach(wireSelection);
+
     // Whatever the last mutation did, reported on the page it landed on.
     const flash = document.getElementById('flash');
-    if (flash && flash.textContent.trim()) toast(flash.textContent.trim(), 'ok');
+    if (flash && flash.textContent.trim()) {
+      toast(flash.textContent.trim(), flash.dataset.kind || 'ok');
+    }
 
     // A link that starts a slow page should also look like it registered.
     document.querySelectorAll('a[data-busy]').forEach(link => {

@@ -246,3 +246,66 @@ def test_charts_are_told_the_zone_the_tables_use(client):
     assert "tzDate" in (STATIC / "chart.js").read_text()
     assert "TPMS_TZ" in (TEMPLATES / "base.html").read_text()
     assert "window.TPMS_TZ" in client.get("/vehicles/1").text
+
+
+def test_the_bulk_bar_lives_inside_the_table_it_acts_on(client):
+    """One selection, one bar -- and the bar has to belong to the set.
+
+    It was rendered as a sibling of the panel holding the table, so it had no
+    ground of its own and sat equidistant between that panel and the next one
+    down. The eye attached it to the nearer border, which was the wrong one.
+    """
+    html = client.get("/vehicles/1").text
+    body = html[html.index("<h2>Sensors</h2>"):]
+    panel = body[body.index('<div class="panel">'):]
+    bar = panel.index('class="row bulk"')
+    assert panel.index("</table>") < bar, "the bar comes after the set it acts on"
+
+    # Walk the divs: the panel that opens the section must still be open when
+    # the bar starts. Counting tags is not enough -- the old markup closed the
+    # panel and opened the bar, which balances.
+    depth = 0
+    opening = panel.rindex("<div", 0, bar)   # the bar's own tag is not nesting
+    for match in re.finditer(r"<div\b|</div>", panel[:opening]):
+        depth += 1 if match.group() == "<div" else -1
+    assert depth > 0, "the bulk bar is outside the panel holding its table"
+
+
+def test_a_refused_bulk_action_returns_the_page_it_came_from(client):
+    """These handlers live under /api/, and the error handler answers /api/
+    with JSON. A browser form post with nothing ticked therefore used to land
+    on a bare {"detail": ...}: no shell, no nav, and every tick gone. A
+    refusal is the page saying no, so it goes back to the page.
+    """
+    for path in ("/api/vehicles/1/split", "/api/vehicles/1/move"):
+        response = client.post(path, data={}, follow_redirects=False)
+        assert response.status_code == 303, path
+        assert response.headers["location"].startswith(("/vehicles", "http"))
+        assert response.cookies.get("tpms_flash_kind") == "err", path
+
+
+def test_a_refusal_does_not_arrive_looking_like_a_save(client):
+    """The toast colour comes from the flash, and the flash used to carry only
+    words. A turned-down action reported itself in green."""
+    forms = (STATIC / "forms.js").read_text()
+    assert "flash.dataset.kind" in forms
+    assert "toast(flash.textContent.trim(), 'ok')" not in forms
+
+
+def test_the_wheel_column_can_be_ordered_by(client):
+    """The sorter falls back to a cell's text, and this cell holds a field, so
+    every row compared as blank: the header offered the cursor, the arrow and
+    the accent colour for an ordering it never performed."""
+    html = client.get("/vehicles/1").text
+    body = html[html.index("<h2>Sensors</h2>"):]
+    assert 'class="actions" data-sort=' in body
+
+
+def test_the_destinations_do_not_include_not_being_a_destination(client):
+    """"Unassign" among the vehicle names is what the per-row picker was taken
+    out for. It came back in the bar."""
+    html = client.get("/vehicles/1").text
+    select = html[html.index('id="move-target"'):]
+    select = select[:select.index("</select>")]
+    if "unassign" in select:
+        assert "<optgroup" in select, "unassign must not sit among the vehicles"

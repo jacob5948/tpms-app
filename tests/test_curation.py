@@ -5,6 +5,8 @@ thing, and each one is the sort of bug that is invisible until a grouping you
 fixed silently comes undone.
 """
 
+from urllib.parse import unquote
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -30,6 +32,26 @@ def _vehicle_with_several_sensors(db):
         if len(members) >= 3:
             return vehicle, members
     pytest.skip("synthetic data produced no multi-sensor vehicle")
+
+
+def _refused(api, path, payload):
+    """A turned-down bulk action, checked the way both callers see it.
+
+    A browser form post is sent back to the page it came from carrying the
+    reason, because these handlers live under /api/ and used to be answered
+    with raw JSON -- no shell, no nav, and every tick the user had just made
+    gone. Anything asking for JSON still gets a 400.
+    """
+    page = api.post(path, data=payload, follow_redirects=False)
+    if page.status_code != 303:
+        return False
+    if unquote(page.cookies.get("tpms_flash", "")) == "":
+        return False
+    if page.cookies.get("tpms_flash_kind") != "err":
+        return False
+    api.cookies.clear()
+    asked = api.post(path, data=payload, headers={"X-Tpms-Async": "1"})
+    return asked.status_code == 400 and asked.json()["ok"] is False
 
 
 # -- the wheel-label bug ----------------------------------------------------
@@ -152,7 +174,7 @@ def test_splitting_clears_the_review_flag(client):
 def test_splitting_nothing_is_refused(client, payload):
     api, service = client
     vehicle, _ = _vehicle_with_several_sensors(service.db)
-    assert api.post(f"/api/vehicles/{vehicle.pk}/split", data=payload).status_code == 400
+    assert _refused(api, f"/api/vehicles/{vehicle.pk}/split", payload)
 
 
 def test_splitting_everything_is_refused(client):
@@ -160,11 +182,9 @@ def test_splitting_everything_is_refused(client):
     vehicle's name and notes on an empty shell that then gets deleted."""
     api, service = client
     vehicle, members = _vehicle_with_several_sensors(service.db)
-    response = api.post(
-        f"/api/vehicles/{vehicle.pk}/split",
-        data={"sensor": [str(s.pk) for s in members]},
-    )
-    assert response.status_code == 400
+    assert _refused(api, f"/api/vehicles/{vehicle.pk}/split",
+                    {"sensor": [str(s.pk) for s in members]})
+    assert len(service.db.sensors_for_vehicle(vehicle.pk)) == len(members)
 
 
 # -- moving in bulk ---------------------------------------------------------
@@ -224,25 +244,23 @@ def test_moving_the_last_sensor_off_a_vehicle_lands_somewhere_that_exists(client
 def test_moving_nothing_is_refused(client, payload):
     api, service = client
     vehicle, _ = _vehicle_with_several_sensors(service.db)
-    assert api.post(f"/api/vehicles/{vehicle.pk}/move", data=payload).status_code == 400
+    assert _refused(api, f"/api/vehicles/{vehicle.pk}/move", payload)
 
 
 def test_moving_without_a_destination_is_refused(client):
     """The picker opens on "Move to..." -- a prompt, not a destination."""
     api, service = client
     vehicle, members = _vehicle_with_several_sensors(service.db)
-    response = api.post(f"/api/vehicles/{vehicle.pk}/move",
-                        data={"sensor": str(members[0].pk), "target": ""})
-    assert response.status_code == 400
+    assert _refused(api, f"/api/vehicles/{vehicle.pk}/move",
+                    {"sensor": str(members[0].pk), "target": ""})
     assert service.db.get_sensor(members[0].pk).vehicle_id == vehicle.pk
 
 
 def test_moving_sensors_where_they_already_are_is_refused(client):
     api, service = client
     vehicle, members = _vehicle_with_several_sensors(service.db)
-    response = api.post(f"/api/vehicles/{vehicle.pk}/move",
-                        data={"sensor": str(members[0].pk), "target": str(vehicle.pk)})
-    assert response.status_code == 400
+    assert _refused(api, f"/api/vehicles/{vehicle.pk}/move",
+                    {"sensor": str(members[0].pk), "target": str(vehicle.pk)})
 
 
 def test_one_tick_serves_every_bulk_action(client):
