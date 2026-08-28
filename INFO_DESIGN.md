@@ -83,6 +83,15 @@ program, defaulting to "stay here" — a non-action — with "split" and
 "unassign" mixed in among the destinations. A per-row control is for what is
 true of that row alone: on that table, only pinning.
 
+The bar arrives with the selection and wears its accent, rather than standing
+there permanently under a label reading "Tick the sensors to act on:". A
+checkbox column already says the rows can be ticked, so the label was a
+sentence for something the controls had already said; what it could not say
+was which tier of control it belonged to, sitting in the same panel as a
+"Set" and a "Pin" on every row. Appearing on the first tick, on the same
+tinted ground as the ticked rows, says both. It is hidden from script and
+rendered either way, so with JS off every action stays reachable.
+
 **A bar of actions sits inside the set it acts on.** The tick, the table and
 the buttons that read the ticks are one object, so they share one panel and
 the bar is its footer. Rendered as a sibling it had no ground of its own and

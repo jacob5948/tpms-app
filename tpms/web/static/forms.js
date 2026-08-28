@@ -140,25 +140,41 @@
    * Nothing on screen used to connect the two: the checkboxes changed no
    * appearance, the bar said "with the ticked sensors" whether or not any
    * were, and pressing an action with an empty set was answered by the
-   * server. A button that is dead until the first tick and lights up on it
-   * teaches the relationship in one click and needs no sentence. All of this
-   * is decoration over a form that still works without it -- the server
-   * refuses the same cases either way. */
+   * server.
+   *
+   * The bar now stays out of the way until there is a selection to act on.
+   * It carried a standing instruction -- "Tick the sensors to act on:" --
+   * which is a sentence for something the checkbox column already says by
+   * being there. Appearing on the first tick, in the same accent the ticked
+   * rows wear, is the same information without the sentence.
+   *
+   * All of this is decoration over a form that still works without it: the
+   * bar is in the HTML and only hidden from here, so with JS off every
+   * action is reachable, and the server refuses the same cases either way. */
   function wireSelection(form) {
     const boxes = Array.from(form.querySelectorAll('input[type="checkbox"][name="sensor"]'));
     if (!boxes.length) return;
     const count = form.querySelector('[data-tick-count]');
+    const bar = form.querySelector('[data-tick-bar]');
     const all = form.querySelector('[data-tick-all]');
     const gated = Array.from(form.querySelectorAll('[data-needs]'));
     const gates = Array.from(form.querySelectorAll('[data-gate]'));
 
+    /* What each button says when it is simply ready. The gating below writes
+     * a reason into `title` while an action is unavailable, and clearing that
+     * to '' on the way out would erase whatever the template put there. */
+    gated.forEach(button => {
+      if (button.dataset.readyTitle === undefined) {
+        button.dataset.readyTitle = button.title;
+      }
+    });
+
     function sync() {
       const ticked = boxes.filter(b => b.checked).length;
       if (count) {
-        count.textContent = ticked
-          ? 'With the ' + ticked + ' ticked sensor' + (ticked === 1 ? '' : 's') + ':'
-          : 'Tick the sensors to act on:';
+        count.textContent = ticked + ' selected';
       }
+      if (bar) bar.hidden = !ticked;
       if (all) {
         all.checked = ticked === boxes.length;
         all.indeterminate = ticked > 0 && ticked < boxes.length;
@@ -174,7 +190,7 @@
         button.title = !ticked ? 'Tick a sensor above first'
           : whole ? 'That is every sensor \u2014 leave at least one wheel here'
           : !open ? 'Choose where to move them first'
-          : '';
+          : button.dataset.readyTitle;
       });
     }
 

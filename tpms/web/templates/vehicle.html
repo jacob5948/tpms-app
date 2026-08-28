@@ -112,9 +112,15 @@
     </tbody>
   </table>
   </div>
-  {# Every action that takes a set of sensors, in one bar under the set. #}
-  <div class="row bulk">
-    <strong class="field-title" data-tick-count>Tick the sensors to act on:</strong>
+  {# Every action that takes a set of sensors, in one bar under the set.
+
+     Hidden by script until the first tick, and present in the HTML so the
+     page still works without JS -- the same fallback the log uses for the
+     sightings behind a pass. The checkbox column already says the rows can
+     be ticked; a bar that appears on the first one, wearing the same accent
+     as the rows it will act on, says what it acts on without a sentence. #}
+  <div class="row bulk" data-tick-bar>
+    <span class="tick-count" data-tick-count aria-live="polite"></span>
     {% if sensors | length > 1 %}
     <button type="submit" data-busy="Splitting…"
             data-needs="input[name=sensor]:checked" data-needs-remainder
