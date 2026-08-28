@@ -31,7 +31,17 @@ def test_missing_vehicle_is_404(client):
 
 
 def test_csv_export_has_a_header_and_rows(client):
+    """The download follows whichever view is on screen.
+
+    It used to always be sensor sightings over a different row limit than the
+    page, so the file and the table disagreed about the same window.
+    """
     body = client[0].get("/api/export.csv").text
+    lines = body.strip().splitlines()
+    assert lines[0].startswith("vehicle,sensor,first_heard,last_heard,duration_s,wheels_heard")
+    assert len(lines) > 1
+
+    body = client[0].get("/api/export.csv?view=sightings").text
     lines = body.strip().splitlines()
     assert lines[0].startswith("vehicle,sensor,wheel,first_heard,last_heard")
     assert len(lines) > 1

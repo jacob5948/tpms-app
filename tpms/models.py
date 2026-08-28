@@ -71,6 +71,26 @@ def parse_rtl_time(value: Any) -> float | None:
     return dt.timestamp()
 
 
+def parse_when(value: str | None) -> float | None:
+    """Accept an ISO date/time, or a relative age like '24h' / '7d'.
+
+    Raises ValueError on anything else. The CLI turns that into a clean exit;
+    the web layer turns it into a 400 next to the offending filter box. It
+    used to raise SystemExit from here, which meant a typo in a date field on
+    the log page came back as a 500.
+    """
+    if not value:
+        return None
+    text = value.strip()
+    if text and text[-1] in "smhd" and text[:-1].replace(".", "", 1).isdigit():
+        factor = {"s": 1, "m": 60, "h": 3600, "d": 86400}[text[-1]]
+        return now() - float(text[:-1]) * factor
+    dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
 def to_iso(ts: float | None) -> str | None:
     """Format epoch seconds as an ISO-8601 UTC string."""
     if ts is None:
@@ -130,6 +150,8 @@ class Sensor:
     #: Set when this is the same transmitter as another sensor, decoded by a
     #: different rtl_433 protocol.
     alias_of: int | None = None
+    #: Hidden from the lists by hand. Still recorded, never clustered.
+    ignored: bool = False
 
     @property
     def is_alias(self) -> bool:

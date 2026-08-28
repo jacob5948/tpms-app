@@ -72,6 +72,9 @@ class ClusterReport:
     mixed_families: list[list[int]] = field(default_factory=list)
     skipped_manual: list[int] = field(default_factory=list)
     skipped_aliases: list[int] = field(default_factory=list)
+    #: Sensors hidden by hand. Kept out of clustering entirely, so a known
+    #: irrelevance cannot pull a real vehicle into its cluster.
+    skipped_ignored: list[int] = field(default_factory=list)
     provisional: list[list[int]] = field(default_factory=list)
 
     def summary(self) -> str:
@@ -84,7 +87,8 @@ class ClusterReport:
             f"{len(self.oversized)} oversized, "
             f"{len(self.mixed_families)} mixed id families, "
             f"{len(self.skipped_manual)} left to manual control, "
-            f"{len(self.skipped_aliases)} duplicate decode(s) ignored"
+            f"{len(self.skipped_aliases)} duplicate decode(s) ignored, "
+            f"{len(self.skipped_ignored)} hidden"
         )
 
 
@@ -269,6 +273,11 @@ class Clusterer:
                 # The same transmitter under another decoder's name. Including
                 # it would invent a vehicle out of one physical sensor.
                 report.skipped_aliases.append(pk)
+            elif sensor.ignored:
+                # Hidden on purpose. It is still heard, and a resident one is
+                # audible while everything else drives past, so letting it
+                # cluster would undo the point of hiding it.
+                report.skipped_ignored.append(pk)
             elif self._is_manual(sensor, manual_vehicles):
                 report.skipped_manual.append(pk)
             else:

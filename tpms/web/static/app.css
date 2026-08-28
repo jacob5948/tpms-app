@@ -132,12 +132,6 @@ form.inline { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wr
 #feed tr.new { animation: flash 1.2s ease-out; }
 @keyframes flash { from { background: color-mix(in srgb, var(--accent) 22%, transparent); } }
 
-.timeline { display: flex; flex-direction: column; gap: 3px; }
-.tl-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
-.tl-bar { flex: 1; height: 9px; background: var(--panel-2); border-radius: 5px; position: relative; }
-.tl-fill { position: absolute; height: 100%; border-radius: 5px; background: var(--accent); min-width: 3px; }
-.tl-fill.open { background: var(--live); }
-
 /* -- shared identity + page furniture ---------------------------------- */
 
 .page-head {
@@ -338,3 +332,80 @@ th.sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2
   tbody tr:hover td:first-child { background: var(--panel-2); }
   .toast { max-width: calc(100vw - 32px); }
 }
+
+/* -- log views, curation controls and page furniture -------------------- */
+
+/* Two peer views of one window. Tabs rather than a dropdown, because which
+   one you are looking at has to be legible without opening anything. */
+.tabs { display: flex; gap: 4px; margin: 0 0 14px; border-bottom: 1px solid var(--line); }
+.tabs a {
+  padding: 8px 14px; font-size: 13.5px; color: var(--muted);
+  border: 1px solid transparent; border-bottom: none; text-decoration: none;
+  border-radius: 8px 8px 0 0; margin-bottom: -1px;
+}
+.tabs a:hover { color: var(--ink); }
+.tabs a.active {
+  color: var(--ink); font-weight: 600;
+  border-color: var(--line); background: var(--panel);
+}
+
+/* Quick ranges on the log, matching the range bar the charts already use. */
+.chips { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.chips .k { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+a.chip { text-decoration: none; }
+a.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* The sightings behind one pass, nested inside its row. Set back and
+   quieter, so it reads as evidence for the row above rather than as peers. */
+tr.sub-rows > td { padding: 0 0 0 26px; background: var(--panel-2); }
+table.inner { font-size: 12.5px; }
+table.inner th { color: var(--muted); font-weight: 500; }
+
+/* A heading with an action or a link on the same line. */
+.head-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.head-row h2 { flex: 1; }
+a.quiet { font-size: 13px; color: var(--muted); }
+a.quiet:hover { color: var(--accent); }
+
+/* Row action clusters: several small controls that must not wrap apart. */
+td.actions { white-space: nowrap; }
+td.actions form { display: inline-flex; }
+button.link {
+  background: none; border: none; padding: 0; font: inherit;
+  color: var(--muted); text-decoration: underline; cursor: pointer;
+}
+button.link:hover { color: var(--accent); }
+
+/* The current value beside the control that changes it. */
+.current { font-size: 16px; margin-top: 2px; }
+
+/* Live view, grouped by vehicle. */
+.heard-group + .heard-group { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
+.heard-head { margin-bottom: 8px; }
+.heard-head h3 { margin: 0; font-size: 14.5px; display: flex; align-items: center; gap: 7px; }
+.heard-head .muted { font-weight: 400; font-size: 12.5px; }
+.card .meta.notes { color: var(--ink); font-style: italic; margin-top: -8px; }
+
+/* Labels that only the screen reader needs: every inline control has one,
+   but repeating "Wheel label for ..." down a column would be noise. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Lifted out of the templates, where these were inline style attributes. */
+.field-wide { min-width: 230px; }
+.field-grow { flex: 1; min-width: 200px; }
+.sub.spaced { margin: 14px 0 0; }
+.sub.tight { margin: 0 0 8px; }
+.status-head { margin-bottom: 14px; }
+.status-state { font-size: 15px; }
+.note.status-note { margin-top: 14px; }
+pre.mono.block {
+  background: var(--panel-2); padding: 12px; border-radius: 8px;
+  overflow-x: auto; margin: 0;
+}
+.mono.command { word-break: break-all; color: var(--muted); }
+.spaced-sm { margin: 10px 0 0; }
+.field-title { font-size: 14px; }
+.chart-stacked { margin-top: 18px; }

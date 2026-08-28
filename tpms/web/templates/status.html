@@ -6,8 +6,8 @@
 <p class="sub">Receiver health and capture totals.</p>
 
 <div class="panel">
-  <div class="row" style="margin-bottom:14px">
-    <strong style="font-size:15px">
+  <div class="row status-head">
+    <strong class="status-state">
       {% if not status.radio.enabled %}
         <span class="dot off"></span>Radio disabled (--no-radio)
       {% elif status.radio.running %}
@@ -23,44 +23,44 @@
   </div>
 
   <div class="stats">
-    <div class="stat"><div class="k">Tuned</div><div class="v">{{ status.radio.frequencies | join(', ') }}</div></div>
-    <div class="stat"><div class="k">Mode</div><div class="v">{{ 'hopping' if status.radio.hopping else 'fixed' }}</div></div>
-    <div class="stat"><div class="k">Readings / min</div><div class="v">{{ status.readings_per_min }}</div></div>
-    <div class="stat"><div class="k">Restarts</div><div class="v">{{ status.radio.restarts }}</div></div>
-    <div class="stat"><div class="k">Last packet</div><div class="v" style="font-size:15px">{{ status.radio.last_line_at | ago }}</div></div>
+    {{ m.stat('Tuned', status.radio.frequencies | join(', ')) }}
+    {{ m.stat('Mode', 'hopping' if status.radio.hopping else 'fixed') }}
+    {{ m.stat('Readings / min', status.readings_per_min) }}
+    {{ m.stat('Restarts', status.radio.restarts) }}
+    {{ m.stat('Last packet', status.radio.last_line_at | ago,
+              status.radio.last_line_at | iso, tier='secondary') }}
   </div>
 
   {% if status.radio.hint %}
-  <div class="note" style="margin-top:14px">
+  <div class="note status-note">
     <strong>Likely cause:</strong> {{ status.radio.hint }}
   </div>
   {% endif %}
 
   {% if status.radio.stderr_tail %}
   <h2>Why the receiver stopped</h2>
-  <p class="sub" style="margin:0 0 8px">
+  <p class="sub tight">
     rtl_433's own output from its last run{% if status.radio.exit_code is not none %},
     which exited with code {{ status.radio.exit_code }}{% endif %}.
   </p>
-  <pre class="mono" style="background:var(--panel-2);padding:12px;border-radius:8px;overflow-x:auto;margin:0"
-  >{% for line in status.radio.stderr_tail %}{{ line }}
+  <pre class="mono block">{% for line in status.radio.stderr_tail %}{{ line }}
 {% endfor %}</pre>
   {% elif status.radio.last_error %}
-  <div class="note" style="margin-top:14px"><strong>Last receiver message:</strong> {{ status.radio.last_error }}</div>
+  <div class="note status-note"><strong>Last receiver message:</strong> {{ status.radio.last_error }}</div>
   {% endif %}
 
   <h2>Command line</h2>
-  <div class="mono" style="word-break:break-all;color:var(--muted)">{{ status.radio.command }}</div>
+  <div class="mono command">{{ status.radio.command }}</div>
 </div>
 
 <h2>Totals</h2>
 <div class="panel">
   <div class="stats">
     {% for key, value in status.counts.items() %}
-    <div class="stat"><div class="k">{{ key.replace('_', ' ') }}</div><div class="v">{{ value }}</div></div>
+    {{ m.stat(key.replace('_', ' '), value) }}
     {% endfor %}
   </div>
-  <p class="sub" style="margin:14px 0 0">
+  <p class="sub spaced">
     Database: <span class="mono">{{ status.database }}</span><br>
     Ingest since start: {{ status.ingest.readings }} readings,
     {{ status.ingest.skipped }} non-TPMS skipped,
@@ -91,14 +91,14 @@
                 else '%.0f days of capture') % status.storage.capture_days)
               if status.storage.capture_days else None) }}
   </div>
-  <p class="sub" style="margin:12px 0 0">
+  <p class="sub spaced">
     Keeping raw packet text for
     <strong>{{ status.storage.policy.raw_days if status.storage.policy.raw_days
                else 'ever' }}{{ ' days' if status.storage.policy.raw_days }}</strong>,
     readings
     <strong>{% if status.storage.policy.readings_days %}for
       {{ status.storage.policy.readings_days }} days{% else %}forever{% endif %}</strong>.
-    Sightings are never pruned &mdash; the appearance log is the history, and it
+    Sightings are never pruned &mdash; the traffic log is the history, and it
     costs a fraction of what it summarises.<br>
     {% if status.storage.last_housekeeping %}
       Last run {{ status.storage.last_housekeeping | ago }}:

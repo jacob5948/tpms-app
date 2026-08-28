@@ -79,10 +79,45 @@
     } catch (e) { /* private browsing */ }
   }
 
+  /* Ordering for a grid of cards, which has no header row to click. The
+   * choice comes from a <select> instead; the cards carry the values on
+   * data-sort-* attributes. Same idea as the tables, different handle. */
+  function enableGrid(grid, key) {
+    const picker = document.querySelector('[data-sort-for="' + grid.id + '"]');
+    if (!picker || grid.dataset.sortable === 'on') return;
+    grid.dataset.sortable = 'on';
+
+    function order(choice) {
+      const [field, dir] = choice.split(':');
+      const direction = dir === 'asc' ? 1 : -1;
+      Array.from(grid.querySelectorAll('[data-filter-row]'))
+        .sort((x, y) => compare(
+          x.dataset['sort' + field] ?? '', y.dataset['sort' + field] ?? ''
+        ) * direction)
+        .forEach(card => grid.appendChild(card));
+    }
+
+    picker.addEventListener('change', () => {
+      order(picker.value);
+      try { localStorage.setItem(key, picker.value); } catch (e) {}
+    });
+
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved && Array.from(picker.options).some(o => o.value === saved)) {
+        picker.value = saved;
+      }
+    } catch (e) { /* private browsing */ }
+    order(picker.value);
+  }
+
   window.initSortable = function (root) {
     const scope = root || document;
     scope.querySelectorAll('table').forEach((table, i) => {
       enable(table, 'tpms.sort:' + location.pathname + ':' + (table.id || i));
+    });
+    scope.querySelectorAll('[data-sortable-grid]').forEach(grid => {
+      enableGrid(grid, 'tpms.sort:' + location.pathname + ':' + grid.id);
     });
   };
 

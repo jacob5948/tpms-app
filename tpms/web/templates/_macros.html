@@ -6,7 +6,7 @@
   look the same and link to the same place.
 #}
 
-{% macro sensor_link(pk, display, wheel=None, pinned=False, present=False, aliases=0, resident=False) %}
+{% macro sensor_link(pk, display, wheel=None, pinned=False, present=False, aliases=0, resident=False, ignored=False) %}
 <span class="ident" data-wheel-slot>
   {%- if present %}<span class="dot live" title="heard now"></span>{% endif -%}
   <a class="mono" href="/sensors/{{ pk }}">{{ display }}</a>
@@ -14,12 +14,75 @@
   {%- if pinned %} <span class="pill" title="Manually placed; clustering will not move it">pinned</span>{% endif -%}
   {%- if aliases %} <span class="pill" title="{{ aliases }} duplicate decode(s) folded in">+{{ aliases }}</span>{% endif -%}
   {%- if resident %} <span class="pill warn" title="Audible most of the time, so it is parked in range rather than driving past. It cannot seed a single-pass grouping.">resident</span>{% endif -%}
+  {%- if ignored %} <span class="pill" title="Hidden from the lists by hand. Still recorded, never clustered.">hidden</span>{% endif -%}
 </span>
 {% endmacro %}
 
 {% macro sensor_cell(s) %}
 {{ sensor_link(s.pk, s.display, s.wheel_label, s.pinned, s.present,
-               s.aliases | length if s.aliases else 0, s.resident) }}
+               s.aliases | length if s.aliases else 0, s.resident, s.ignored) }}
+{% endmacro %}
+
+{#
+  One timestamp idiom for the whole app: what a human reads ("8m ago"), the
+  exact time on hover, and the epoch seconds for the sorter. Three pages used
+  to show raw ISO instead, so reading across them meant switching formats.
+#}
+{% macro when(ts, missing='never') %}
+<td title="{{ ts | iso if ts is not none else '' }}" data-sort="{{ ts if ts is not none else '' }}">
+  {{- (ts | ago) if ts is not none else missing -}}
+</td>
+{% endmacro %}
+
+{# A link into the log, filtered to one thing. #}
+{% macro log_link(vehicle_id=None, sensor_pk=None, text='See the full log') %}
+<a class="quiet" href="/events?{{ 'vehicle=' ~ vehicle_id if vehicle_id else 'sensor=' ~ sensor_pk }}">{{ text }} &rarr;</a>
+{% endmacro %}
+
+{#
+  The sensor table, in one place.
+
+  The Sensors page and the unassigned list on Vehicles used to be two hand-
+  written copies of the same table with different columns, so the same sensor
+  looked like a different kind of thing depending on how you arrived at it.
+  `show_vehicle` is the only real difference: on Vehicles the column would say
+  "unassigned" in every row.
+#}
+{% macro sensor_table(rows, id='rows', show_vehicle=true, empty='Nothing heard yet.') %}
+<div class="panel scroll">
+  {% if rows %}
+  <table id="{{ id }}">
+    <thead><tr>
+      <th>Sensor</th>{% if show_vehicle %}<th>Vehicle</th>{% endif %}<th>Band</th>
+      <th class="num">psi</th><th class="num">&deg;C</th><th>Battery</th>
+      <th class="num">RSSI</th><th class="num">Readings</th>
+      <th>First heard</th><th>Last heard</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for s in rows %}
+      <tr data-unassigned="{{ 0 if s.vehicle_id else 1 }}"
+          data-present="{{ 1 if s.present else 0 }}"
+          data-duplicates="{{ 1 if s.aliases else 0 }}"
+          data-resident="{{ 1 if s.resident else 0 }}"
+          data-new="{{ 1 if s.new else 0 }}"
+          {% if s.ignored %}data-hidden="1" data-hidden-unless="hidden"{% endif %}>
+        <td>{{ sensor_cell(s) }}</td>
+        {% if show_vehicle %}<td>{{ vehicle_cell(s.vehicle_id, s.vehicle_name) }}</td>{% endif %}
+        {{ band_cell(s.bands) }}
+        {{ reading_cells(s) }}
+        <td class="num">{{ s.reading_count }}</td>
+        {{ when(s.first_seen) }}
+        {{ when(s.last_seen) }}
+        <td><a class="btn" href="/sensors/{{ s.pk }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">{{ empty }}</div>
+  {% endif %}
+  <div class="empty filter-empty" hidden>No sensor matches this filter.</div>
+</div>
 {% endmacro %}
 
 {% macro vehicle_cell(vehicle_id, vehicle_name) %}
@@ -62,8 +125,8 @@
 {# `flag` turns the tile into a filter toggle for the table below it.
    `tier='secondary'` is for values that qualify a primary one rather than
    answering the page's question: smaller, quieter, still on the surface. #}
-{% macro stat(label, value, hint=None, flag=None, tier='primary') %}
-<div class="stat{{ ' toggle' if flag }}{{ ' secondary' if tier == 'secondary' }}"{% if flag %} data-filter-flag="{{ flag }}" aria-pressed="false"{% endif %}>
+{% macro stat(label, value, hint=None, flag=None, tier='primary', target='rows') %}
+<div class="stat{{ ' toggle' if flag }}{{ ' secondary' if tier == 'secondary' }}"{% if flag %} data-filter-flag="{{ flag }}" data-filter-target="{{ target }}" aria-pressed="false"{% endif %}>
   <div class="k">{{ label }}</div>
   <div class="v">{{ value }}</div>
   {% if hint %}<div class="h">{{ hint }}</div>{% endif %}

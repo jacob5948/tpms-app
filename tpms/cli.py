@@ -19,7 +19,7 @@ from .cluster import Clusterer
 from .config import load_config
 from .db import Database
 from .ingest import Ingestor
-from .models import band_label, now as now_ts, to_iso
+from .models import band_label, now as now_ts, parse_when, to_iso
 from .retention import human_bytes, run as run_retention
 from .service import Service
 from . import queries as q
@@ -30,19 +30,10 @@ log = logging.getLogger("tpms")
 
 def _parse_when(value: str | None) -> float | None:
     """Accept an ISO date/time, or a relative age like '24h' / '7d'."""
-    if not value:
-        return None
-    text = value.strip()
-    if text and text[-1] in "smhd" and text[:-1].replace(".", "", 1).isdigit():
-        factor = {"s": 1, "m": 60, "h": 3600, "d": 86400}[text[-1]]
-        return time.time() - float(text[:-1]) * factor
     try:
-        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parse_when(value)
     except ValueError as exc:
         raise SystemExit(f"could not parse time {value!r}") from exc
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.timestamp()
 
 
 def cmd_serve(args: argparse.Namespace) -> int:

@@ -1,32 +1,111 @@
 {#
-  The "heard now" table, on its own so the Live page can refresh just this
+  The "heard now" panel, on its own so the Live page can refresh just this
   fragment instead of reloading the whole page under the user.
+
+  Grouped by vehicle, because a car going past is one thing happening and the
+  flat table made its four wheels read as four unrelated events. Each group
+  carries the controls to name or claim what is audible: the reason to be on
+  this page is often a car you are watching go by, and the moment to say what
+  it is, is while it is still there.
 #}
 {% import "_macros.html" as m %}
-{% if heard %}
-<div class="scroll"><table>
-  <thead><tr>
-    <th>Sensor</th><th>Vehicle</th><th>Band</th>
-    <th class="num">psi</th><th class="num">&deg;C</th><th>Battery</th><th class="num">RSSI</th>
-    <th>First heard</th><th>Last heard</th><th class="num">Readings</th><th class="num">Peak</th>
-  </tr></thead>
-  <tbody>
-    {% for h in heard %}
-    <tr>
-      <td>{{ m.sensor_link(h.sensor_pk, h.display, h.wheel_label, present=true) }}</td>
-      <td>{{ m.vehicle_cell(h.vehicle_id, h.vehicle_name) }}</td>
-      <td class="band">{{ h.band or '—' }}</td>
-      {{ m.reading_cells(h) }}
-      <td title="{{ h.started_at_iso }}" data-sort="{{ h.started_at }}">{{ h.started_at | ago }}</td>
-      <td data-ts="{{ h.last_reading_at }}" data-sort="{{ h.last_reading_at }}">{{ h.last_reading_at | ago }}</td>
-      <td class="num">{{ h.reading_count }}</td>
-      <td class="num" data-sort="{{ h.max_rssi if h.max_rssi is not none else '' }}"
-          title="Strongest reading of this sighting">
-        {{- '%.1f' % h.max_rssi if h.max_rssi is not none else '—' -}}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table></div>
-{% else %}
+
+{% if not heard.vehicles and not heard.loose %}
 <div class="empty">Nothing audible right now.</div>
+{% else %}
+
+{% for g in heard.vehicles %}
+<div class="heard-group">
+  <div class="row heard-head">
+    <h3>
+      <span class="dot live"></span>
+      <a href="/vehicles/{{ g.vehicle_id }}">{{ g.vehicle_name }}</a>
+      <span class="muted">
+        {{ g.sensors | length }}{% if g.wheels_known %}/{{ g.wheels_known }}{% endif %}
+        wheel{{ '' if g.sensors | length == 1 else 's' }} audible
+      </span>
+    </h3>
+    {% if not g.named %}
+    {# Named here and now, while you can still see what it is. #}
+    <form class="inline right" method="post" data-async data-busy="Saving…"
+          action="/api/vehicles/{{ g.vehicle_id }}">
+      <label class="sr-only" for="name-{{ g.vehicle_id }}">Name this vehicle</label>
+      <input id="name-{{ g.vehicle_id }}" type="text" name="name"
+             placeholder="Name it while you can see it" size="24">
+      <button type="submit">Name</button>
+    </form>
+    {% endif %}
+  </div>
+  <div class="scroll"><table>
+    <thead><tr>
+      <th>Sensor</th><th>Band</th>
+      <th class="num">psi</th><th class="num">&deg;C</th><th>Battery</th><th class="num">RSSI</th>
+      <th>First heard</th><th>Last heard</th><th class="num">Readings</th><th class="num">Peak</th>
+    </tr></thead>
+    <tbody>
+      {% for h in g.sensors %}
+      <tr>
+        <td>{{ m.sensor_link(h.sensor_pk, h.display, h.wheel_label, present=true) }}</td>
+        <td class="band">{{ h.band or '—' }}</td>
+        {{ m.reading_cells(h) }}
+        {{ m.when(h.started_at) }}
+        <td data-ts="{{ h.last_reading_at }}" data-sort="{{ h.last_reading_at }}"
+            title="{{ h.last_reading_at_iso }}">{{ h.last_reading_at | ago }}</td>
+        <td class="num">{{ h.reading_count }}</td>
+        <td class="num" data-sort="{{ h.max_rssi if h.max_rssi is not none else '' }}"
+            title="Strongest reading of this sighting">
+          {{- '%.1f' % h.max_rssi if h.max_rssi is not none else '—' -}}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endfor %}
+
+{% if heard.loose %}
+<div class="heard-group">
+  <div class="row heard-head">
+    <h3><span class="dot live"></span>Not in a vehicle</h3>
+    <span class="sub right">
+      Audible, but not grouped yet. If you can see what these belong to, claim
+      them now &mdash; a manual placement is pinned and survives clustering.
+    </span>
+  </div>
+  <div class="scroll"><table>
+    <thead><tr>
+      <th>Sensor</th><th>Band</th>
+      <th class="num">psi</th><th class="num">&deg;C</th><th>Battery</th><th class="num">RSSI</th>
+      <th>First heard</th><th>Last heard</th><th class="num">Readings</th><th></th>
+    </tr></thead>
+    <tbody>
+      {% for h in heard.loose %}
+      <tr>
+        <td>{{ m.sensor_link(h.sensor_pk, h.display, h.wheel_label, present=true) }}</td>
+        <td class="band">{{ h.band or '—' }}</td>
+        {{ m.reading_cells(h) }}
+        {{ m.when(h.started_at) }}
+        <td data-ts="{{ h.last_reading_at }}" data-sort="{{ h.last_reading_at }}"
+            title="{{ h.last_reading_at_iso }}">{{ h.last_reading_at | ago }}</td>
+        <td class="num">{{ h.reading_count }}</td>
+        <td class="actions">
+          <form class="inline" method="post" data-busy="Saving…"
+                action="/api/sensors/{{ h.sensor_pk }}">
+            <label class="sr-only" for="claim-{{ h.sensor_pk }}">Assign {{ h.display }}</label>
+            <select id="claim-{{ h.sensor_pk }}" name="vehicle_id">
+              <option value="none">leave unassigned</option>
+              <option value="new">new vehicle</option>
+              {% for v in vehicles %}
+              <option value="{{ v.pk }}">{{ v.display }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit">Assign</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endif %}
+
 {% endif %}

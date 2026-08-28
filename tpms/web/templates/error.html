@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ status }} &middot; TPMS{% endblock %}
+{% block body %}
+{#
+  A stale bookmark, a purged sensor or a mistyped date used to land on raw
+  FastAPI JSON: no header, no nav, no way back. Errors are pages too.
+#}
+<div class="page-head">
+  <div>
+    <h1>{{ status }}{% if status == 404 %} &mdash; not here{% endif %}</h1>
+    <p class="sub">{{ detail or 'Something went wrong.' }}</p>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="empty">
+    {% if status == 404 %}
+      This may have been purged, or merged into something else. Vehicles are
+      removed automatically once their last sensor leaves them.
+    {% endif %}
+    <p class="spaced-sm">
+      <a href="{{ back or '/' }}">&larr; Back to {{ 'the log' if back == '/events' else 'the live view' }}</a>
+      &nbsp;&middot;&nbsp;
+      <a href="/vehicles">Vehicles</a>
+      &nbsp;&middot;&nbsp;
+      <a href="/sensors">Sensors</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

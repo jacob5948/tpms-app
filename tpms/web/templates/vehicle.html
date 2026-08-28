@@ -14,13 +14,13 @@
 </h1>
 <p class="sub">
   {{ sensors | length }} sensor{{ '' if sensors | length == 1 else 's' }} &middot;
-  {{ intervals | length }} appearance{{ '' if intervals | length == 1 else 's' }} &middot;
+  {{ intervals | length }} pass{{ '' if intervals | length == 1 else 'es' }} &middot;
   {{ 'auto-clustered' if vehicle.auto_generated else 'manually curated' }}
 </p>
 
 <div class="stats">
   {{ m.stat('Wheels heard', sensors | length) }}
-  {{ m.stat('Appearances', intervals | length) }}
+  {{ m.stat('Passes', intervals | length) }}
   {{ m.stat('Last heard', (intervals[0].ended_at or intervals[0].started_at) | ago if intervals else '—') }}
   {{ m.stat('Readings', sensors | sum(attribute='reading_count')) }}
 </div>
@@ -46,6 +46,11 @@
   single vehicle carries. Two vehicles that always travel together are
   indistinguishable by co-occurrence alone, so this may need splitting.
   {% endif %}
+  <p class="spaced-sm">
+    Tick the sensors that belong to the other vehicle in the table below and
+    press <strong>Split selected out</strong>, or clear the flag if the
+    grouping is right.
+  </p>
   <form class="inline" method="post" data-busy="Clearing…"
         action="/api/vehicles/{{ vehicle.pk }}/review-cleared">
     <button type="submit">It's correct, clear the flag</button>
@@ -56,68 +61,110 @@
 <div class="panel">
   <form class="row" method="post" data-busy="Saving…"
         action="/api/vehicles/{{ vehicle.pk }}">
-    <input type="text" name="name" placeholder="Name this vehicle" value="{{ vehicle.name or '' }}" style="min-width:230px">
-    <input type="text" name="notes" placeholder="Notes" value="{{ vehicle.notes or '' }}" style="flex:1;min-width:200px">
+    <input type="text" name="name" placeholder="Name this vehicle" value="{{ vehicle.name or '' }}" class="field-wide">
+    <input type="text" name="notes" placeholder="Notes" value="{{ vehicle.notes or '' }}" class="field-grow">
     <button class="primary" type="submit">Save</button>
   </form>
-  <p class="sub" style="margin:10px 0 0">
+  <p class="sub spaced-sm">
     Naming a vehicle marks it as manually curated; the clusterer will no longer
     reshape it.
   </p>
 </div>
 
 <h2>Sensors</h2>
+<p class="sub">
+  The wheels grouped into this vehicle. Correcting a grouping is the point of
+  this table: label a wheel, move one elsewhere, or tick several and split
+  them out into a vehicle of their own.
+</p>
+
+{# One form around the table so several sensors can leave together. The
+   per-row controls are their own forms, which is why the split button posts
+   to a different action than they do. #}
+<form method="post" data-busy="Splitting…"
+      action="/api/vehicles/{{ vehicle.pk }}/split"
+      data-confirm="Move the ticked sensors into a new vehicle of their own?">
 <div class="panel scroll">
   <table>
     <thead><tr>
+      <th></th>
       <th>Sensor</th><th>Wheel</th><th>Band</th><th class="num">psi</th><th class="num">&deg;C</th>
       <th>Battery</th><th class="num">RSSI</th><th class="num">Readings</th><th>Last heard</th><th></th>
     </tr></thead>
     <tbody>
       {% for s in sensors %}
       <tr>
+        <td><input type="checkbox" name="sensor" value="{{ s.pk }}"
+                   aria-label="Select {{ s.display }} to split out"></td>
         <td>{{ m.sensor_cell(s) }}</td>
         <td>
-          <form class="inline" method="post" data-async data-busy="Saving…"
-                action="/api/sensors/{{ s.pk }}">
-            <input type="text" name="wheel_label" value="{{ s.wheel_label or '' }}" placeholder="e.g. FL" size="6">
-            <button type="submit">Set</button>
-          </form>
+          <label class="sr-only" for="wheel-{{ s.pk }}">Wheel label for {{ s.display }}</label>
+          <input form="wheel-form-{{ s.pk }}" id="wheel-{{ s.pk }}" type="text"
+                 name="wheel_label" value="{{ s.wheel_label or '' }}"
+                 placeholder="e.g. FL" size="6">
+          <button form="wheel-form-{{ s.pk }}" type="submit">Set</button>
         </td>
         {{ m.band_cell(s.bands) }}
         {{ m.reading_cells(s) }}
         <td class="num">{{ s.reading_count }}</td>
-        <td title="{{ s.last_seen_iso }}" data-sort="{{ s.last_seen }}">{{ s.last_seen | ago }}</td>
-        <td>
-          <form class="inline" method="post" data-busy="Moving…"
-                action="/api/sensors/{{ s.pk }}">
-            <select name="vehicle_id">
-              <option value="{{ vehicle.pk }}">stay here</option>
-              <option value="new">split to new vehicle</option>
-              <option value="none">unassign</option>
-              {% for other in all_vehicles %}
-              <option value="{{ other.pk }}">move to {{ other.display }}</option>
-              {% endfor %}
-            </select>
-            <button type="submit">Apply</button>
-          </form>
+        {{ m.when(s.last_seen) }}
+        <td class="actions">
+          <label class="sr-only" for="move-{{ s.pk }}">Move {{ s.display }}</label>
+          <select form="move-form-{{ s.pk }}" id="move-{{ s.pk }}" name="vehicle_id">
+            <option value="{{ vehicle.pk }}">stay here</option>
+            <option value="new">split to new vehicle</option>
+            <option value="none">unassign</option>
+            {% for other in all_vehicles %}
+            <option value="{{ other.pk }}">move to {{ other.display }}</option>
+            {% endfor %}
+          </select>
+          <button form="move-form-{{ s.pk }}" type="submit">Apply</button>
+          {# The handler has always supported this; nothing rendered it, so a
+             sensor placed by hand could never be handed back. #}
+          <button form="pin-form-{{ s.pk }}" type="submit" name="pinned"
+                  value="{{ 0 if s.pinned else 1 }}"
+                  title="{{ 'Let clustering place this sensor again' if s.pinned
+                            else 'Keep clustering from moving this sensor' }}">
+            {{ 'Unpin' if s.pinned else 'Pin' }}
+          </button>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+<div class="row">
+  <button type="submit">Split selected out</button>
+  <span class="sub">Moves the ticked sensors into a new vehicle and pins them there.</span>
+</div>
+</form>
+
+{# Declared outside the split form: HTML forbids nesting, so the row controls
+   reach them by `form=` instead. #}
+{% for s in sensors %}
+<form id="wheel-form-{{ s.pk }}" method="post" data-async data-busy="Saving…"
+      action="/api/sensors/{{ s.pk }}" hidden></form>
+<form id="move-form-{{ s.pk }}" method="post" data-busy="Moving…"
+      action="/api/sensors/{{ s.pk }}" hidden></form>
+<form id="pin-form-{{ s.pk }}" method="post" data-busy="Saving…"
+      action="/api/sensors/{{ s.pk }}" hidden></form>
+{% endfor %}
 
 {% if all_vehicles %}
 <div class="panel">
   <form class="row" method="post" data-busy="Merging…"
-        action="/api/vehicles/{{ vehicle.pk }}/merge">
-    <strong style="font-size:14px">Merge another vehicle into this one</strong>
-    <select name="other">
+        action="/api/vehicles/{{ vehicle.pk }}/merge"
+        data-confirm="Move every sensor from the chosen vehicle into {{ vehicle.display }}? The other vehicle is removed, and this cannot be undone in one click.">
+    <label for="merge-other"><strong class="field-title">Merge another vehicle into this one</strong></label>
+    <select id="merge-other" name="other">
       {% for other in all_vehicles %}<option value="{{ other.pk }}">{{ other.display }}</option>{% endfor %}
     </select>
     <button type="submit">Merge</button>
   </form>
+  <p class="sub spaced-sm">
+    The chosen vehicle's sensors move here and it is removed. Splitting them
+    back out later is possible, but its name and notes are not recoverable.
+  </p>
 </div>
 {% endif %}
 
@@ -141,8 +188,14 @@
   <script id="chart-pks" type="application/json">{{ sensors | map(attribute='pk') | list | tojson }}</script>
 </div>
 
-<h2>Appearances</h2>
-<p class="sub">Merged across all wheels: from the first wheel heard to the last.</p>
+<div class="head-row">
+  <h2>Passes</h2>
+  {{ m.log_link(vehicle_id=vehicle.pk, text='Open in the log') }}
+</div>
+<p class="sub">
+  Merged across all wheels: from the first wheel heard to the last. The same
+  rows the log shows, filtered to this vehicle.
+</p>
 <div class="panel">
   {% if intervals %}
   <div class="scroll"><table>
@@ -150,8 +203,11 @@
     <tbody>
       {% for i in intervals %}
       <tr>
-        <td data-sort="{{ i.started_at }}">{{ i.started_at | iso }}</td>
-        <td data-sort="{{ i.ended_at or i.started_at }}">{% if i.open %}<span class="pill live">still audible</span>{% else %}{{ i.ended_at | iso }}{% endif %}</td>
+        {{ m.when(i.started_at) }}
+        <td data-sort="{{ i.ended_at or i.started_at }}" title="{{ i.ended_at | iso }}">
+          {%- if i.open %}<span class="pill live">still audible</span>
+          {%- else %}{{ i.ended_at | ago }}{% endif -%}
+        </td>
         <td class="num" data-sort="{{ i.duration }}">{{ i.duration | duration }}</td>
         <td class="num">{{ i.sensor_count }}</td>
         <td class="num">{{ i.reading_count }}</td>
@@ -160,7 +216,7 @@
     </tbody>
   </table></div>
   {% else %}
-  <div class="empty">No appearances recorded.</div>
+  <div class="empty">No passes recorded.</div>
   {% endif %}
 </div>
 {% endblock %}
@@ -175,21 +231,21 @@
   const names = JSON.parse(document.getElementById('chart-names').textContent);
   const pks   = JSON.parse(document.getElementById('chart-pks').textContent);
 
-  /* An appearance is a state that holds until it ends, so it is drawn as a
+  /* A pass is a state that holds until it ends, so it is drawn as a
    * step between "away" and "audible" rather than a line through the two. */
   const presence = tpmsChart(document.getElementById('chart-presence'), [], {
     label: 'When this vehicle was audible', height: 110, sync: sync,
     zeroBased: true, noTable: true, ySplits: [0, 1],
     formatValue: v => (v >= 0.5 ? 'audible' : 'away'),
-    empty: 'No appearances recorded yet.',
-    caption: 'Each block is one appearance, first wheel heard to last. ' +
-             'Listed exactly in Appearances below.',
+    empty: 'No passes recorded yet.',
+    caption: 'Each block is one pass, first wheel heard to last. ' +
+             'Listed exactly in Passes below.',
   });
   /* The blocks above go sub-pixel across a month; a count per bucket stays
    * readable at any zoom, and is the one that shows a pattern. */
   const appearances = tpmsChart(document.getElementById('chart-appearances'), [], {
-    label: 'Appearances over time', height: 140, sync: sync,
-    zeroBased: true, decimals: 0, empty: 'No appearances recorded yet.',
+    label: 'Passes over time', height: 140, sync: sync,
+    zeroBased: true, decimals: 0, empty: 'No passes recorded yet.',
   });
   const chart = tpmsChart(document.getElementById('chart'), pks.map((sensorPk, i) => ({
     name: names[i],
@@ -233,7 +289,7 @@
       const range = seconds || 'all';
       presence.setSeries([{ name: 'audible', kind: 'step',
         points: blocks(body.intervals, body.end) }], range);
-      appearances.setSeries([{ name: 'appearances', kind: 'bar',
+      appearances.setSeries([{ name: 'passes', kind: 'bar',
         color: window.TPMS_COLORS[1],
         points: body.buckets.map(b => ({ ts: b.ts, value: b.appearances })) }], range);
       // All three plots share a window, so they must share an end. Without
@@ -242,13 +298,13 @@
       [presence, appearances, chart].forEach(c => c.setXMax(body.end));
       const bucket = body.width ? Math.max(1, Math.round(body.width / 60)) : 0;
       appearances.setCaption(bucket
-        ? 'Appearances per ' + (bucket >= 120 ? Math.round(bucket / 60) + '-hour'
+        ? 'Passes per ' + (bucket >= 120 ? Math.round(bucket / 60) + '-hour'
                                              : bucket + '-minute') + ' bucket.'
         : 'Nothing to bucket yet.');
       bar.refresh();
     } catch (e) {
       [presence, appearances].forEach(c => c.setError(
-        'Could not load this vehicle\u2019s appearances.', () => loadPresence(seconds)));
+        'Could not load this vehicle\u2019s passes.', () => loadPresence(seconds)));
     }
   }
 

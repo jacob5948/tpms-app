@@ -13,7 +13,7 @@ from typing import Any, Iterable, Sequence
 
 from .models import Reading, Sensor, Sighting, Vehicle
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sensors (
@@ -29,8 +29,15 @@ CREATE TABLE IF NOT EXISTS sensors (
     -- Set when this "sensor" is really the same transmitter as another,
     -- decoded by a different rtl_433 protocol. See tpms/aliases.py.
     alias_of      INTEGER REFERENCES sensors(pk) ON DELETE SET NULL,
+    -- Deliberately hidden from the lists: a transmitter that is real but not
+    -- interesting, such as a neighbour's parked car. A hide, not a delete --
+    -- readings keep accruing and `tpms purge` is still the destructive path.
+    ignored       INTEGER NOT NULL DEFAULT 0,
     UNIQUE (model, sensor_id)
 );
+-- Both columns are filtered on in every list query and followed per vehicle.
+CREATE INDEX IF NOT EXISTS sensors_vehicle ON sensors (vehicle_id);
+CREATE INDEX IF NOT EXISTS sensors_alias ON sensors (alias_of);
 
 CREATE TABLE IF NOT EXISTS readings (
     pk            INTEGER PRIMARY KEY,
@@ -163,6 +170,11 @@ class Database:
         }
         if "alias_of" not in columns:
             conn.execute("ALTER TABLE sensors ADD COLUMN alias_of INTEGER")
+        # v6: hiding a sensor from the lists without destroying its history.
+        if "ignored" not in columns:
+            conn.execute(
+                "ALTER TABLE sensors ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0"
+            )
         vehicle_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(vehicles)").fetchall()
         }
@@ -698,6 +710,7 @@ def _sensor(row: sqlite3.Row) -> Sensor:
         wheel_label=row["wheel_label"],
         pinned=bool(row["pinned"]),
         alias_of=row["alias_of"],
+        ignored=bool(row["ignored"]),
     )
 
 
