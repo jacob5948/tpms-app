@@ -120,11 +120,12 @@
   </div>
 </div>
 
-<h2>Pressure &amp; temperature</h2>
+<h2>Pressure, temperature &amp; signal</h2>
 <div class="panel">
   <div id="chart-range"></div>
   <div id="chart-psi"></div>
   <div id="chart-temp" class="chart-stacked"></div>
+  <div id="chart-rssi" class="chart-stacked"></div>
   <script id="chart-data" type="application/json">{{ s.history | tojson }}</script>
 </div>
 
@@ -235,8 +236,17 @@
     empty: 'No temperature readings from this decoder.',
     caption: '°C, same window.',
   });
+  /* Signal is a third facet rather than a second axis on either plot above,
+   * for the same reason those two are apart. Not zeroBased: rtl_433 reports
+   * level as dB below full scale, so every value is negative and a floor at
+   * zero would push the whole trace into a corner. */
+  const rssi = tpmsChart(document.getElementById('chart-rssi'), [], {
+    label: 'Signal strength over time', height: 150, sync: 'sensor-{{ s.pk }}',
+    empty: 'No signal levels recorded for this sensor.',
+    caption: 'dB below full scale, same window — nearer zero is stronger.',
+  });
   const bar = tpmsRangeBar(document.getElementById('chart-range'), {
-    charts: [psi, temp], active: 'all', onRange: seconds => load(seconds),
+    charts: [psi, temp, rssi], active: 'all', onRange: seconds => load(seconds),
   });
 
   function draw(rows, range) {
@@ -245,6 +255,9 @@
     temp.setSeries([{ name: '°C', color: window.TPMS_COLORS[3],
       points: rows.filter(r => r.temperature_c != null)
                   .map(r => ({ ts: r.ts, value: r.temperature_c })) }], range);
+    rssi.setSeries([{ name: 'dB', color: window.TPMS_COLORS[4],
+      points: rows.filter(r => r.rssi != null)
+                  .map(r => ({ ts: r.ts, value: r.rssi })) }], range);
     bar.refresh();
   }
 
@@ -254,14 +267,14 @@
 
   async function load(seconds) {
     const since = seconds ? Math.round(seconds / 60) + 'm' : null;
-    [psi, temp].forEach(c => c.setLoading(true));
+    [psi, temp, rssi].forEach(c => c.setLoading(true));
     try {
       const url = '/api/sensors/' + pk + '/history' + (since ? '?since=' + since : '');
       const response = await fetch(url);
       if (!response.ok) throw new Error(response.status);
       draw((await response.json()).points, seconds || 'all');
     } catch (e) {
-      [psi, temp].forEach(c => c.setError(
+      [psi, temp, rssi].forEach(c => c.setError(
         'Could not load this sensor\u2019s history.', () => load(seconds)));
     }
   }

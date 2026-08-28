@@ -786,8 +786,12 @@ def pressure_history(
     start: float | None = None,
     end: float | None = None,
 ) -> list[dict]:
+    # rssi rides along with the pressure rows rather than being read
+    # separately: the three facets on the sensor page are one figure over one
+    # window, and pulling signal from a different row set would let the
+    # cursor land on a moment the other two never saw.
     sql = (
-        "SELECT ts, pressure_kpa, temperature_c FROM readings "
+        "SELECT ts, pressure_kpa, temperature_c, rssi FROM readings "
         "WHERE sensor_pk = ? AND pressure_kpa IS NOT NULL"
     )
     params: list[Any] = [sensor_pk]
@@ -808,6 +812,7 @@ def pressure_history(
             "pressure_kpa": float(r["pressure_kpa"]),
             "pressure_psi": float(r["pressure_kpa"]) / 6.894757,
             "temperature_c": r["temperature_c"],
+            "rssi": r["rssi"],
         }
         for r in _thin(rows, limit)
     ]
