@@ -6,6 +6,10 @@
   <title>{% block title %}TPMS{% endblock %}</title>
   <link rel="stylesheet" href="/static/vendor/uplot.min.css">
   <link rel="stylesheet" href="/static/app.css">
+  <!-- Every stamp on the page is written in this zone, charts included, so
+       an axis and the table under it cannot disagree about what "9am" was.
+       Set it with `timezone:` in config.yaml. -->
+  <script>window.TPMS_TZ = {{ timezone | tojson }};</script>
   <!-- Not deferred: the page scripts that draw charts run inline at the
        end of the body, which is before any deferred script executes. -->
   <script src="/static/vendor/uplot.iife.min.js"></script>

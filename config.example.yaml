@@ -2,6 +2,12 @@
 
 database: tpms.db
 
+# Every time on screen -- tables, chart axes, CSV exports -- is written in
+# this zone, and a date typed into a filter box is read in it. Readings are
+# stored as epoch seconds, so changing this re-reads history rather than
+# rewriting it. Any IANA name: America/Chicago, UTC, Europe/London.
+timezone: America/Chicago
+
 radio:
   # Path to the rtl_433 binary.
   binary: rtl_433

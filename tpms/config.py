@@ -13,6 +13,8 @@ from typing import Any
 
 import yaml
 
+from .models import set_display_timezone
+
 # Fallback TPMS protocol numbers, used only if the installed rtl_433 cannot be
 # queried. Protocol numbers are NOT stable across rtl_433 versions and older
 # builds simply do not have the higher ones, so the real list is discovered at
@@ -24,6 +26,10 @@ FALLBACK_TPMS_PROTOCOLS: tuple[int, ...] = (
 
 DEFAULTS: dict[str, Any] = {
     "database": "tpms.db",
+    # Every time on screen is written in this zone. Readings are stored as
+    # epoch seconds and always have been -- this is a display setting, and
+    # changing it re-reads history rather than rewriting it.
+    "timezone": "America/Chicago",
     "radio": {
         "binary": "rtl_433",
         "frequencies": ["315M"],
@@ -212,6 +218,8 @@ class RetentionConfig:
 @dataclass
 class Config:
     database: str = "tpms.db"
+    #: IANA name -- "America/Chicago", "UTC", "Europe/London".
+    timezone: str = "America/Chicago"
     radio: RadioConfig = field(default_factory=RadioConfig)
     sessions: SessionConfig = field(default_factory=SessionConfig)
     aliases: AliasConfig = field(default_factory=AliasConfig)
@@ -220,6 +228,12 @@ class Config:
     retention: RetentionConfig = field(default_factory=RetentionConfig)
     #: Directory the config file was loaded from; relative paths resolve here.
     base_dir: Path = field(default_factory=Path.cwd)
+
+    def __post_init__(self) -> None:
+        # Building a config is what puts its zone into effect: the CLI, the
+        # service and the tests all construct one directly, and a stamp
+        # rendered before anyone called a setter would be in the wrong zone.
+        set_display_timezone(self.timezone)
 
     @property
     def database_path(self) -> Path:
@@ -271,6 +285,7 @@ def load_config(path: str | Path | None = None) -> Config:
 
     return Config(
         database=data["database"],
+        timezone=data["timezone"],
         radio=RadioConfig(**data["radio"]),
         sessions=SessionConfig(**data["sessions"]),
         aliases=AliasConfig(**data["aliases"]),

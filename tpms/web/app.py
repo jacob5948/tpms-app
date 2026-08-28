@@ -132,6 +132,8 @@ def create_app(service: Service) -> FastAPI:
     templates.env.filters["ago"] = _fmt_ago
     templates.env.filters["iso"] = to_iso
     templates.env.filters["bytes"] = human_bytes
+    # Read by base.html for the charts, which label their own axes.
+    templates.env.globals["timezone"] = service.config.timezone
 
     db = service.db
     gap = service.config.sessions.gap_seconds

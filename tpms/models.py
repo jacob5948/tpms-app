@@ -8,8 +8,9 @@ anything else would be local time with no offset attached.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Bands we tune to. rtl_433 reports the tuner's centre frequency plus the
 # decoder's frequency estimate, so a 315 MHz sensor comes back as 314.98 or
@@ -36,6 +37,27 @@ def band_label(freq_mhz: float | None) -> str | None:
         return None
     text = f"{band:.2f}".rstrip("0").rstrip(".")
     return f"{text} MHz"
+
+
+#: The zone every stamp on screen is written in. Readings are stored as epoch
+#: seconds -- this is display only, and `load_config` sets it from the config
+#: file. A module global because to_iso is called from templates, queries and
+#: the CLI alike, none of which carry a config.
+_display_tz: tzinfo = timezone.utc
+
+
+def set_display_timezone(name: str) -> tzinfo:
+    """Point every stamp at an IANA zone. Returns the zone it settled on."""
+    global _display_tz
+    try:
+        _display_tz = ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(f"unknown timezone: {name!r}") from exc
+    return _display_tz
+
+
+def display_timezone() -> tzinfo:
+    return _display_tz
 
 
 # rtl_433 emits "2026-08-25 15:34:12" or, with -M time:usec, a fractional part.
@@ -87,19 +109,22 @@ def parse_when(value: str | None) -> float | None:
         return now() - float(text[:-1]) * factor
     dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        # A date typed into a filter box means that date where the receiver
+        # is, matching the stamps the same page prints back.
+        dt = dt.replace(tzinfo=_display_tz)
     return dt.timestamp()
 
 
 def to_iso(ts: float | None) -> str | None:
-    """Format epoch seconds as an ISO-8601 UTC string."""
+    """Format epoch seconds as ISO-8601 in the configured zone.
+
+    With the offset spelled out: a stamp that says 14:03 and does not say
+    where cannot be compared with anything.
+    """
     if ts is None:
         return None
-    return (
-        datetime.fromtimestamp(ts, tz=timezone.utc)
-        .isoformat(timespec="seconds")
-        .replace("+00:00", "Z")
-    )
+    stamp = datetime.fromtimestamp(ts, tz=_display_tz).isoformat(timespec="seconds")
+    return stamp.replace("+00:00", "Z")
 
 
 def now() -> float:

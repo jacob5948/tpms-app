@@ -46,6 +46,13 @@ heard*. There is no "left at" anywhere, in the schema or on screen.
 sets and no way to click through. If a page needs a sensor rendered, it calls
 the macro.
 
+**One zone, named where it can be read.** Readings are stored as epoch
+seconds; `timezone:` in the config decides how every one of them is written
+out — tables, chart axes, CSV, and the dates typed into filter boxes. The
+charts label their own axes, so they are told the zone too: an axis in the
+reader's zone above a table in the receiver's is two clocks on one page. The
+Status page says which zone is in force.
+
 **One timestamp idiom.** Relative text for reading, ISO in `title` for
 precision, epoch in `data-sort` for ordering. Use `m.when()`. Three pages once
 showed raw ISO instead, so reading across them meant switching formats.

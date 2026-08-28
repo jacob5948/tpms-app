@@ -3,7 +3,11 @@
 {% block title %}Status &middot; TPMS{% endblock %}
 {% block body %}
 <h1>Status</h1>
-<p class="sub">Receiver health and capture totals.</p>
+<p class="sub">
+  Receiver health and capture totals. Every time in this program is shown in
+  <strong>{{ timezone }}</strong>; set <code>timezone:</code> in config.yaml
+  to change it.
+</p>
 
 <div class="panel">
   <div class="row status-head">

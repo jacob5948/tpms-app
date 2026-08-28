@@ -238,3 +238,11 @@ def test_stacked_facets_are_titled(client):
     assert "chart-title" in chart, "chart.js must render the label it is given"
     for path in ("/", "/sensors/1", "/vehicles/1"):
         assert "label: '" in client.get(path).text, path
+
+
+def test_charts_are_told_the_zone_the_tables_use(client):
+    """uPlot labels its axis in the reader's zone unless told otherwise, which
+    puts the chart hours away from the table beneath it."""
+    assert "tzDate" in (STATIC / "chart.js").read_text()
+    assert "TPMS_TZ" in (TEMPLATES / "base.html").read_text()
+    assert "window.TPMS_TZ" in client.get("/vehicles/1").text

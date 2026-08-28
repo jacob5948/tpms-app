@@ -47,8 +47,12 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
   const colourOf = (s, i) => s.color || window.TPMS_COLORS[i % window.TPMS_COLORS.length];
   const esc = t => String(t).replace(/[&<>"]/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // The server's zone, not the reader's: a stamp beside a reading is about
+  // where the receiver is, and the tables on the same page say the same.
+  const TZ = window.TPMS_TZ || undefined;
   const stamp = t => new Date(t * 1000).toLocaleString(undefined,
-    { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      timeZone: TZ });
 
   /* Canvas cannot use currentColor, so sample the page's own ink and fade it.
      Read fresh on every build: the theme can change under a live page. */
@@ -286,6 +290,10 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
         width: host.clientWidth || 900,
         height: height,
         legend: { live: true },
+        // uPlot labels its x axis in the browser's zone unless told
+        // otherwise, which put the chart an hour or six out from every
+        // table around it.
+        tzDate: TZ ? (ts => uPlot.tzDate(new Date(ts * 1000), TZ)) : undefined,
         scales: {
           x: { time: true },
           y: opts.zeroBased ? { range: (u, lo, hi) => [0, hi > 0 ? hi * 1.1 : 1] } : {},
