@@ -52,8 +52,28 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     # The service is started and stopped by the app's lifespan, so shutdown
     # runs as part of uvicorn's own sequence rather than after it returns.
+    server = uvicorn.Server(uvicorn.Config(
+        app, host=config.web.host, port=config.web.port, log_level="warning",
+        # Nothing may hold the process open indefinitely: a wedged response
+        # would otherwise be answered only by systemd's SIGKILL.
+        timeout_graceful_shutdown=10,
+    ))
+
+    # uvicorn waits for in-flight responses *before* it runs lifespan
+    # shutdown -- and the live feed is a response that only ends when that
+    # shutdown fires. One open Live page was therefore enough to make
+    # `systemctl stop tpms` sit out its whole timeout and take a SIGKILL.
+    # Releasing the streams from the signal handler breaks the circle.
+    graceful_exit = server.handle_exit
+
+    def handle_exit(sig, frame):  # noqa: ANN001
+        app.state.shutting_down.set()
+        graceful_exit(sig, frame)
+
+    server.handle_exit = handle_exit
+
     try:
-        uvicorn.run(app, host=config.web.host, port=config.web.port, log_level="warning")
+        server.run()
     finally:
         service.stop()  # belt and braces if uvicorn never reached lifespan
     return 0

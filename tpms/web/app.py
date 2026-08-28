@@ -122,6 +122,10 @@ def create_app(service: Service) -> FastAPI:
             service.stop()
 
     app = FastAPI(title="TPMS", docs_url=None, redoc_url=None, lifespan=lifespan)
+    # Exposed because lifespan shutdown is too late to release the streams:
+    # uvicorn waits for in-flight responses first, and an SSE response only
+    # finishes once this is set. `tpms serve` sets it from the signal handler.
+    app.state.shutting_down = shutting_down
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     templates.env.filters["duration"] = _fmt_duration

@@ -18,6 +18,12 @@ ExecStart=/opt/tpms/.venv/bin/tpms --config /opt/tpms/config.yaml serve
 Restart=always
 RestartSec=5
 
+# A backstop, not the mechanism: `tpms serve` releases the live feeds from its
+# signal handler and exits in a second or two. Before it did, one open Live
+# page held the process through the default 90-second timeout and every stop
+# ended in a SIGKILL.
+TimeoutStopSec=30
+
 # Journald gets our logs; rtl_433's own stderr is folded in at debug level.
 StandardOutput=journal
 StandardError=journal
