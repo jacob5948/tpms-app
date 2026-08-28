@@ -608,7 +608,7 @@ def create_app(service: Service) -> FastAPI:
             request,
             f"/vehicles/{target}",
             f"Split {len(chosen)} sensor(s) out of {_vehicle_name(vehicle_id)} "
-            f"into this vehicle. Give it a name.",
+            f"into this vehicle, pinned here. Give it a name.",
             keep_referer=False,
         )
 
@@ -658,7 +658,8 @@ def create_app(service: Service) -> FastAPI:
             request,
             f"/vehicles/{target}" if target else "/vehicles",
             f"Moved {len(chosen)} sensor(s) to "
-            + (_vehicle_name(target) if target else "no vehicle") + ".",
+            + (_vehicle_name(target) if target else "no vehicle")
+            + ", pinned there.",
             keep_referer=db.get_vehicle(vehicle_id) is not None,
         )
 
@@ -729,8 +730,13 @@ def create_app(service: Service) -> FastAPI:
                 # hands off, so pin the sensor as part of the same action.
                 db.execute("UPDATE sensors SET pinned = 1 WHERE pk = ?", (sensor_pk,))
                 db.delete_empty_vehicles()
+                # Say the pin happened. Moving a sensor by hand pins it, and
+                # a flag the user did not ask for and is not told about is
+                # the whole of why pinning reads as arbitrary.
                 done.append(
-                    f"moved to {_vehicle_name(target)}" if target else "unassigned"
+                    f"moved to {_vehicle_name(target)} and pinned there"
+                    if target
+                    else "unassigned and pinned"
                 )
 
         message = f"{display}: {', '.join(done)}." if done else "Nothing to change."

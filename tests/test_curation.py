@@ -5,6 +5,7 @@ thing, and each one is the sort of bug that is invisible until a grouping you
 fixed silently comes undone.
 """
 
+from pathlib import Path
 from urllib.parse import unquote
 
 import pytest
@@ -15,6 +16,8 @@ from tpms.config import Config
 from tpms.service import Service
 from tpms.synthetic import generate_lines
 from tpms.web.app import create_app
+
+STATIC = Path(__file__).resolve().parents[1] / "tpms" / "web" / "static"
 
 
 @pytest.fixture
@@ -122,6 +125,35 @@ def test_the_pin_control_is_actually_rendered(client):
     api, service = client
     pk = service.db.list_sensors()[0].pk
     assert 'name="pinned"' in api.get(f"/sensors/{pk}").text
+
+
+def test_a_busy_button_still_sends_its_own_name(client):
+    """Pin, unpin, hide and show put the whole of what they ask for in the
+    button -- `pinned=1`, `ignored=0` -- and nowhere else.
+
+    Every test above posts that field directly, so the server side stayed
+    green while the browser sent nothing at all. `markBusy` disabled the
+    pressed button inside the submit handler, under a comment asserting the
+    form had already been serialised. It has not: the entry list is built
+    after the submit event and skips disabled controls, the submitter
+    included. So the POST arrived with an empty body and every one of these
+    controls answered "Nothing to change."
+
+    The fix copies the button's pair into a field of its own first. Guard the
+    order, because the two lines are next to each other and read as though
+    they could be swapped.
+    """
+    forms = (STATIC / "forms.js").read_text()
+    carry = forms.index("carried.name = button.name")
+    disable = forms.index("button.disabled = true")
+    assert carry < disable, "carry the submitter's name/value before disabling it"
+
+    # And the controls that depend on it are still shaped that way.
+    api, service = client
+    pk = service.db.list_sensors()[0].pk
+    page = api.get(f"/sensors/{pk}").text
+    for field in ('name="pinned"', 'name="ignored"'):
+        assert field in page, field
 
 
 # -- splitting --------------------------------------------------------------

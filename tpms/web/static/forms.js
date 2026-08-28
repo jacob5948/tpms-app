@@ -40,14 +40,40 @@
   function markBusy(button, form) {
     if (!button || button.disabled) return null;
     const label = button.textContent;
-    // The browser has already serialised the form by the time submit fires,
-    // so disabling here cannot drop a field.
+
+    /* Carry the pressed button's own name/value in a field of its own before
+     * disabling it.
+     *
+     * This used to be written the other way round, under a comment claiming
+     * the browser had already serialised the form by the time submit fires.
+     * It has not: the entry list is built *after* the submit event, and
+     * building it skips disabled controls -- the submitter included. So
+     * disabling the button here dropped the button's own pair.
+     *
+     * For most forms that cost nothing, because their instruction sits in
+     * real inputs. But pin, unpin, hide and show carry the whole of what
+     * they are asking for in the button: `pinned=1`, `ignored=0`. Those
+     * posted an empty body, and the handler, seeing no field it recognised,
+     * answered "Nothing to change." -- so the entire pinning system was
+     * dead with JS on and worked only with JS off. */
+    let carried = null;
+    if (button.name) {
+      carried = document.createElement('input');
+      carried.type = 'hidden';
+      carried.name = button.name;
+      carried.value = button.value;
+      form.appendChild(carried);
+    }
+
     button.disabled = true;
     button.classList.add('busy');
     // The button's own wording wins: one form can carry two actions, and
     // "Splitting..." on the button that moves is a lie.
     button.textContent = button.dataset.busy || form.dataset.busy || 'Saving…';
     return () => {
+      // Only the async path restores; a full-page submit never comes back
+      // here. Removing it matters so a second submit cannot send it twice.
+      if (carried) carried.remove();
       button.disabled = false;
       button.classList.remove('busy');
       button.textContent = label;

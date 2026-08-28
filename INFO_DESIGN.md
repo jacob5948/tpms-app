@@ -74,7 +74,21 @@ hands, or it becomes permanent on the vehicles the user has curated most.
 
 **Corrections must survive the next clustering run.** Any manual placement
 pins the sensor. Anything that pins must also be un-pinnable from the UI: a
-one-way door is not a correction loop.
+one-way door is not a correction loop. And every action that pins says so in
+the flash it returns -- "moved to X and pinned there", not just the move. A
+flag the user did not ask for and is not told about is most of why pinning
+reads as arbitrary: the sensor comes back wearing a pill nothing accounted
+for.
+
+**A control that carries its whole instruction in the button must not be
+disabled before the browser reads it.** `pinned=1` and `ignored=0` live in the
+pressed button's own name/value and nowhere else. The entry list is built
+after the `submit` event and skips disabled controls, the submitter included,
+so the busy-state disable in `markBusy` silently emptied the POST and every
+one of these controls answered "Nothing to change." The server tests posted
+the field directly and stayed green throughout. `markBusy` now copies the
+pair into a field of its own first, and `test_a_busy_button_still_sends_its_own_name`
+guards the order.
 
 **One selection, one bar of actions.** Anything that acts on a set of rows
 reads the ticks and lives in a bar under the table, sharing one form. The
