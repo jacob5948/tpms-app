@@ -283,6 +283,9 @@ class Clusterer:
             else:
                 eligible.add(pk)
 
+        if not dry_run:
+            self._release(sensors, eligible, manual_vehicles)
+
         report.edges = self.build_edges(eligible)
         report.components = self.components(report.edges)
 
@@ -337,6 +340,38 @@ class Clusterer:
 
         report.vehicles_removed = self.db.delete_empty_vehicles()
         return report
+
+    def _release(
+        self, sensors: dict[int, Sensor], eligible: set[int], manual: set[int]
+    ) -> None:
+        """Drop "provisional" from the vehicles clustering no longer owns.
+
+        The flag means "grouped from a single pass, and not seen together
+        since". It is only ever rewritten for the vehicles this run
+        reconciles, so one that passed into a person's hands kept whatever it
+        had at that moment -- for good. Naming a vehicle, the act that most
+        says "this grouping is mine, not a guess", is exactly what took it out
+        of reach of the only code that could have cleared the flag.
+        """
+        held = set(manual)
+        members: dict[int, list[int]] = {}
+        for pk, sensor in sensors.items():
+            if sensor.vehicle_id is not None and sensor.alias_of is None:
+                members.setdefault(sensor.vehicle_id, []).append(pk)
+        # Every wheel pinned is the same statement as a name: a person put
+        # these together and clustering may not take them apart.
+        held |= {
+            vehicle_id
+            for vehicle_id, pks in members.items()
+            if pks and all(pk not in eligible and sensors[pk].pinned for pk in pks)
+        }
+        if not held:
+            return
+        self.db.execute(
+            "UPDATE vehicles SET provisional = 0 WHERE provisional = 1 AND pk IN "
+            f"({','.join('?' * len(held))})",
+            tuple(sorted(held)),
+        )
 
     def _reconcile(
         self, members: list[int], sensors: dict[int, Sensor], report: ClusterReport

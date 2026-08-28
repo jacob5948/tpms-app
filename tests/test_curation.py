@@ -350,3 +350,60 @@ def test_vehicle_dropdowns_are_sorted_by_name(client):
     order = [body.index(f">{name}<") for name in ("Alpha", "middle", "zeta")]
     assert order == sorted(order), "named vehicles list alphabetically"
     assert body.index("Unnamed vehicle") > order[-1], "unnamed ones come last"
+
+
+# -- the provisional flag ---------------------------------------------------
+
+
+def test_naming_a_vehicle_clears_provisional(client):
+    """"Provisional" means clustering grouped these from a single pass and has
+    not seen them together since. Naming is a person saying otherwise -- and
+    it used to be the one act that made the flag permanent, because it also
+    takes the vehicle out of the reach of the code that rewrites the flag."""
+    api, service = client
+    vehicle, _ = _vehicle_with_several_sensors(service.db)
+    service.db.execute("UPDATE vehicles SET provisional = 1 WHERE pk = ?", (vehicle.pk,))
+
+    api.post(f"/api/vehicles/{vehicle.pk}", data={"name": "Red Estate"},
+             follow_redirects=False)
+
+    assert not service.db.get_vehicle(vehicle.pk).provisional
+    service.recluster()
+    assert not service.db.get_vehicle(vehicle.pk).provisional, "and it stays cleared"
+
+
+def test_pinning_every_wheel_clears_provisional(client):
+    """The same statement as a name, made one wheel at a time."""
+    api, service = client
+    vehicle, members = _vehicle_with_several_sensors(service.db)
+    service.db.execute("UPDATE vehicles SET provisional = 1 WHERE pk = ?", (vehicle.pk,))
+    for sensor in members[:-1]:
+        service.db.execute("UPDATE sensors SET pinned = 1 WHERE pk = ?", (sensor.pk,))
+
+    service.recluster()
+    assert service.db.get_vehicle(vehicle.pk).provisional, "one wheel is still loose"
+
+    service.db.execute(
+        "UPDATE sensors SET pinned = 1 WHERE pk = ?", (members[-1].pk,)
+    )
+    service.recluster()
+    assert not service.db.get_vehicle(vehicle.pk).provisional
+
+
+def test_an_untouched_grouping_stays_provisional(client):
+    """The flag is still worth something: a guess clustering made and still
+    owns keeps it until a later pass corroborates the grouping."""
+    api, service = client
+    vehicle, members = _vehicle_with_several_sensors(service.db)
+    service.db.execute(
+        "UPDATE vehicles SET provisional = 1, auto_generated = 1, name = NULL "
+        "WHERE pk = ?", (vehicle.pk,)
+    )
+    service.db.execute(
+        "UPDATE sensors SET pinned = 0 WHERE vehicle_id = ?", (vehicle.pk,)
+    )
+
+    sensors = {s.pk: s for s in service.db.list_sensors()}
+    service.clusterer._release(sensors, {s.pk for s in members}, manual=set())
+
+    assert service.db.get_vehicle(vehicle.pk).provisional

@@ -79,7 +79,7 @@
               'carries. Most likely two vehicles that travel together.'
               % v.sensor_count) }}">needs review</span>{% endif %}
       {% if v.provisional %}<span class="pill warn"
-        title="Grouped from a single pass: heard together once, sharing a decoder and a similar signal level. Plausible, not confirmed until it comes back.">provisional</span>{% endif %}
+        title="Grouped from a single pass: heard together once, sharing a decoder and a similar signal level. Clears when they are heard together again, or as soon as you name the vehicle.">provisional</span>{% endif %}
     </h3>
     <div class="meta">
       {{ v.sensor_count }} sensor{{ '' if v.sensor_count == 1 else 's' }} &middot;

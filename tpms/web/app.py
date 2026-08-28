@@ -502,8 +502,14 @@ def create_app(service: Service) -> FastAPI:
         notes = (form.get("notes") or "").strip() or None
         # A human-supplied name marks the vehicle as manual territory, which
         # stops the clusterer from reshaping it later.
+        # provisional = 0: the flag means "clustering grouped these from a
+        # single pass and has not seen them together since". A vehicle a
+        # person has named is not that, and waiting for the clusterer to
+        # notice would never have worked -- it skips the vehicles it no
+        # longer owns.
         db.execute(
-            "UPDATE vehicles SET name = ?, notes = ?, auto_generated = 0 WHERE pk = ?",
+            "UPDATE vehicles SET name = ?, notes = ?, auto_generated = 0, "
+            "provisional = 0 WHERE pk = ?",
             (name, notes, vehicle_id),
         )
         return _back(
@@ -526,7 +532,10 @@ def create_app(service: Service) -> FastAPI:
         moved = _vehicle_name(other)
         into = _vehicle_name(vehicle_id)
         db.execute("UPDATE sensors SET vehicle_id = ? WHERE vehicle_id = ?", (vehicle_id, other))
-        db.execute("UPDATE vehicles SET auto_generated = 0 WHERE pk = ?", (vehicle_id,))
+        db.execute(
+            "UPDATE vehicles SET auto_generated = 0, provisional = 0 WHERE pk = ?",
+            (vehicle_id,),
+        )
         db.delete_empty_vehicles()
         return _back(request, f"/vehicles/{vehicle_id}", f"Merged {moved} into {into}.")
 

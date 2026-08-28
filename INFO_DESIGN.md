@@ -59,6 +59,12 @@ without knowing a URL. Asking for a hidden sensor *by name* — `?sensor=N` —
 always answers: hidden means kept out of what you browse, not out of what you
 ask for.
 
+**A flag clustering sets, clustering must be able to clear.** `provisional`
+is only rewritten for the vehicles a run still owns — and naming a vehicle,
+or pinning every wheel, is exactly what takes it out of that set. The flag
+therefore has to be dropped at the moment a vehicle passes into a person's
+hands, or it becomes permanent on the vehicles the user has curated most.
+
 **Corrections must survive the next clustering run.** Any manual placement
 pins the sensor. Anything that pins must also be un-pinnable from the UI: a
 one-way door is not a correction loop.
