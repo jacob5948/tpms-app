@@ -4,6 +4,7 @@ These are cheap structural checks, not a substitute for looking at the page:
 they exist because each one has already been got wrong once.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -214,13 +215,20 @@ def test_the_program_has_no_fourth_word_for_a_pass(client):
 
 
 def test_a_flag_shared_by_most_cards_is_explained_once(client):
-    """Nearly every vehicle is provisional, so a paragraph per card was the
-    same sentence down the whole grid -- and it buried the review notes,
-    which do differ card to card."""
+    """Nearly every vehicle is provisional, and the review reason is nearly
+    always the same one, so a paragraph per card came out as one sentence
+    repeated down the whole grid -- dwarfing the readings the card exists to
+    show. The card keeps the flag, the reason as a tooltip and the action."""
+    template = (TEMPLATES / "vehicles.html").read_text()
+    card = template.split('<div class="grid"')[1]
+    assert 'class="note"' not in card, "no explanatory boxes inside the cards"
+    assert 'class="pill warn"' in card, "the flags themselves stay"
+    assert "Split them" in card, "and so does the action the flag calls for"
+
+    # A tooltip may repeat -- it costs no space and is read one at a time.
     html = client.get("/vehicles").text
-    assert html.count("Grouped from a single pass") <= 1
-    # The flag itself stays on the cards: the tooltip carries the sentence.
-    assert 'class="pill warn"' in (TEMPLATES / "vehicles.html").read_text()
+    for note in re.findall(r'<div class="note">(.*?)</div>', html, re.S):
+        assert "Grouped from a single pass" not in note
 
 
 def test_stacked_facets_are_titled(client):

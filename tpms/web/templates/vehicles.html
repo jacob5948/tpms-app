@@ -13,9 +13,12 @@
 </div>
 
 {#
-  Flags are explained here, once, rather than in a paragraph on each card:
-  most vehicles are provisional, so that note repeated down the whole grid
-  and crowded out the review notes, which do differ card to card.
+  Flags are explained here, once, rather than in a paragraph on each card.
+  Nearly every vehicle is provisional and the review reason is nearly always
+  the same one, so both notes came out as the same paragraph down the whole
+  grid, dwarfing the readings the card exists to show. The card carries the
+  flag, the reason as a tooltip and the action; the sentence lives on the
+  vehicle's own page, where it is about one vehicle.
 
   The tiles are the review queue. Clustering guesses and flags what it is
   unsure about; clicking "Needs review" or "Provisional" filters the grid to
@@ -66,6 +69,15 @@
     <h3>
       <a href="/vehicles/{{ v.pk }}">{{ v.name }}</a>
       {% if v.present %}<span class="pill live"><span class="dot live"></span>heard now</span>{% endif %}
+      {# The reason, as a tooltip: it is the same sentence on nearly every
+         flagged card, and the page it links to spells it out in full. #}
+      {% if v.needs_review %}<span class="pill warn" title="{{
+        ('These sensors come from several unrelated blocks of IDs. Wheels on one '
+         'car are numbered together, so this is more likely two vehicles that '
+         'drove past at the same moment.') if v.review_reason == 'mixed_families'
+        else ('%d sensors clustered together, at or past what one vehicle '
+              'carries. Most likely two vehicles that travel together.'
+              % v.sensor_count) }}">needs review</span>{% endif %}
       {% if v.provisional %}<span class="pill warn"
         title="Grouped from a single pass: heard together once, sharing a decoder and a similar signal level. Plausible, not confirmed until it comes back.">provisional</span>{% endif %}
     </h3>
@@ -74,21 +86,10 @@
       <a class="quiet" href="/events?vehicle={{ v.pk }}">{{ v.passes }} pass{{ '' if v.passes == 1 else 'es' }}</a> &middot;
       last heard <span title="{{ v.last_seen_iso }}">{{ v.last_seen | ago }}</span>
       {% if not v.named %} &middot; <span class="pill">auto</span>{% endif %}
+      {% if v.needs_review %} &middot;
+      <a href="/vehicles/{{ v.pk }}">Split them &rarr;</a>{% endif %}
     </div>
     {% if v.notes %}<div class="meta notes">{{ v.notes }}</div>{% endif %}
-    {% if v.needs_review %}
-    <div class="note">
-      {% if v.review_reason == 'mixed_families' %}
-        These sensors come from several unrelated blocks of IDs. Wheels on one
-        car are numbered together, so this is more likely two vehicles that
-        drove past at the same moment.
-      {% else %}
-        {{ v.sensor_count }} sensors clustered together &mdash; at or past what
-        one vehicle carries. Most likely two vehicles that travel together.
-      {% endif %}
-      <a href="/vehicles/{{ v.pk }}">Split them &rarr;</a>
-    </div>
-    {% endif %}
     <div class="wheels">
       {% for s in v.sensors %}
       <a class="wheel" href="/sensors/{{ s.pk }}">

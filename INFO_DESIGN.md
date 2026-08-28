@@ -83,10 +83,11 @@ passed. The vehicle page's plots were also filed under "comings and goings",
 a fourth name for a pass — see the three nouns above.
 
 **A flag most rows share is explained once.** Nearly every vehicle is
-provisional, so a paragraph per card was the same sentence down the whole
-grid, and it buried the review notes, which differ card to card. The tile
-hint and the pill's tooltip carry the explanation; the card carries only what
-is true of that card.
+provisional, and the review reason is nearly always the same one, so a
+paragraph per card came out as one sentence repeated down the whole grid,
+dwarfing the readings the card exists to show. The card carries the flag, the
+reason as a tooltip, and the action the flag calls for; the tile hint and the
+vehicle's own page carry the prose.
 
 **Range controls sit above the charts they scope**, and one range row governs
 all facets of one window — two views of one window must not be able to disagree
