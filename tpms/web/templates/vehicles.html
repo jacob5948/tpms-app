@@ -13,6 +13,10 @@
 </div>
 
 {#
+  Flags are explained here, once, rather than in a paragraph on each card:
+  most vehicles are provisional, so that note repeated down the whole grid
+  and crowded out the review notes, which do differ card to card.
+
   The tiles are the review queue. Clustering guesses and flags what it is
   unsure about; clicking "Needs review" or "Provisional" filters the grid to
   exactly those, which is the worklist that used to be scattered across the
@@ -25,7 +29,8 @@
   {{ m.stat('Needs review', vehicles | selectattr('needs_review') | list | length,
             'clustering is unsure', flag='review', target='vehicle-grid') }}
   {{ m.stat('Provisional', vehicles | selectattr('provisional') | list | length,
-            'seen once, unconfirmed', flag='provisional', target='vehicle-grid') }}
+            'heard together once, not yet confirmed', flag='provisional',
+            target='vehicle-grid') }}
   {{ m.stat('Unnamed', vehicles | rejectattr('named') | list | length,
             'never curated', flag='unnamed', target='vehicle-grid') }}
 </div>
@@ -55,27 +60,22 @@
        data-provisional="{{ 1 if v.provisional else 0 }}"
        data-unnamed="{{ 0 if v.named else 1 }}"
        data-sort-seen="{{ v.last_seen or 0 }}"
-       data-sort-passes="{{ v.appearances }}"
+       data-sort-passes="{{ v.passes }}"
        data-sort-sensors="{{ v.sensor_count }}"
        data-sort-name="{{ v.name }}">
     <h3>
       <a href="/vehicles/{{ v.pk }}">{{ v.name }}</a>
       {% if v.present %}<span class="pill live"><span class="dot live"></span>heard now</span>{% endif %}
-      {% if v.provisional %}<span class="pill warn">provisional</span>{% endif %}
+      {% if v.provisional %}<span class="pill warn"
+        title="Grouped from a single pass: heard together once, sharing a decoder and a similar signal level. Plausible, not confirmed until it comes back.">provisional</span>{% endif %}
     </h3>
     <div class="meta">
       {{ v.sensor_count }} sensor{{ '' if v.sensor_count == 1 else 's' }} &middot;
-      <a class="quiet" href="/events?vehicle={{ v.pk }}">{{ v.appearances }} pass{{ '' if v.appearances == 1 else 'es' }}</a> &middot;
+      <a class="quiet" href="/events?vehicle={{ v.pk }}">{{ v.passes }} pass{{ '' if v.passes == 1 else 'es' }}</a> &middot;
       last heard <span title="{{ v.last_seen_iso }}">{{ v.last_seen | ago }}</span>
       {% if not v.named %} &middot; <span class="pill">auto</span>{% endif %}
     </div>
     {% if v.notes %}<div class="meta notes">{{ v.notes }}</div>{% endif %}
-    {% if v.provisional %}
-    <div class="note">
-      Grouped from a single pass: heard together once, sharing a decoder and a
-      similar signal level. Plausible, not confirmed until it comes back.
-    </div>
-    {% endif %}
     {% if v.needs_review %}
     <div class="note">
       {% if v.review_reason == 'mixed_families' %}

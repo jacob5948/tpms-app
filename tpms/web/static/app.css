@@ -177,6 +177,12 @@ a.wheel { display: block; color: inherit; }
 a.wheel:hover { text-decoration: none; outline: 1px solid var(--accent); }
 
 .chart-caption { margin: 8px 0 0; }
+/* The title of one facet. Small: the h2 above the panel names the figure,
+   this names the plot inside it. */
+.chart-title {
+  margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--ink);
+}
+
 
 /* Chart controls: a row of ranges above the plot. uPlot draws the rest. */
 .chart-tools { gap: 6px; margin-bottom: 8px; align-items: center; }
@@ -191,7 +197,11 @@ a.wheel:hover { text-decoration: none; outline: 1px solid var(--accent); }
 .chart-zoom { gap: 8px; margin-top: 8px; }
 /* .row is display:flex, which beats the UA rule for [hidden]. */
 .chart-zoom[hidden] { display: none; }
-.chart + .chart, .chart-tools + .chart { margin-top: 14px; }
+/* Stacked facets are one figure, but each still needs its own edge --
+   without one, the caption of the plot above reads as the title of the plot
+   below. */
+.chart + .chart, .chart-tools + .chart { margin-top: 18px; }
+.chart + .chart { padding-top: 16px; border-top: 1px solid var(--line); }
 
 /* Loading: a block the size of the finished plot, so nothing jumps when the
    fetch lands. Refetching holds the last render instead of flashing. */
@@ -369,6 +379,9 @@ a.quiet:hover { color: var(--accent); }
 
 /* Row action clusters: several small controls that must not wrap apart. */
 td.actions { white-space: nowrap; }
+/* A select is as wide as its longest option, and one option carries a whole
+   vehicle name -- left alone it pushes the buttons beside it off the table. */
+td.actions select { max-width: 13rem; }
 td.actions form { display: inline-flex; }
 button.link {
   background: none; border: none; padding: 0; font: inherit;

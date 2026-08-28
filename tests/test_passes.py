@@ -141,3 +141,19 @@ def test_an_unknown_page_renders_the_shell(client):
     assert response.status_code == 404
     assert "TPMS watch" in response.text
     assert "/sensors" in response.text
+
+
+def test_empty_filters_mean_no_filter(client):
+    """The filter form spells out every box, including the ones left blank.
+
+    Submitting it with no vehicle chosen sends ``vehicle=``, which is the log
+    unfiltered -- not a malformed request.
+    """
+    page = client.get("/events?view=passes&since=&until=&vehicle=&sensor=")
+    assert page.status_code == 200
+
+    csv_export = client.get("/api/export.csv?view=passes&since=&until=&vehicle=&sensor=")
+    assert csv_export.status_code == 200
+    assert len(csv_export.text.splitlines()) == len(
+        client.get("/api/export.csv?view=passes").text.splitlines()
+    )

@@ -249,3 +249,17 @@ def test_asking_for_a_hidden_sensor_by_name_still_answers(client):
 
     assert api.get(f"/events?sensor={sensor.pk}").status_code == 200
     assert q.events(service.db, sensor_pk=sensor.pk, include_ignored=True)
+
+
+def test_vehicle_dropdowns_are_sorted_by_name(client):
+    """A pick-list is scanned by eye, so it goes A-Z rather than by insertion
+    order, with the still-unnamed vehicles gathered at the end."""
+    api, service = client
+    for name in ("zeta", "Alpha", "middle"):
+        service.db.create_vehicle(name=name, created_at=0.0, auto_generated=False)
+    service.db.create_vehicle(name=None, created_at=0.0, auto_generated=True)
+
+    body = api.get("/events").text
+    order = [body.index(f">{name}<") for name in ("Alpha", "middle", "zeta")]
+    assert order == sorted(order), "named vehicles list alphabetically"
+    assert body.index("Unnamed vehicle") > order[-1], "unnamed ones come last"

@@ -76,6 +76,18 @@ way to gather it is a flag nobody acts on.
 reading a correlation off that alignment reads something the data never said.
 Use stacked facets with a synced cursor. Every chart also carries a table twin.
 
+**Every facet carries its title.** Stacked plots in one panel are one figure,
+but an untitled one runs into the next: the caption under the first reads as
+the heading of the second. `tpmsChart` draws the `label` every caller already
+passed. The vehicle page's plots were also filed under "comings and goings",
+a fourth name for a pass — see the three nouns above.
+
+**A flag most rows share is explained once.** Nearly every vehicle is
+provisional, so a paragraph per card was the same sentence down the whole
+grid, and it buried the review notes, which differ card to card. The tile
+hint and the pill's tooltip carry the explanation; the card carries only what
+is true of that card.
+
 **Range controls sit above the charts they scope**, and one range row governs
 all facets of one window — two views of one window must not be able to disagree
 about which window that is.

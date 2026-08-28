@@ -112,7 +112,7 @@ async function loadActivity(seconds) {
   activityCharts.sensors.setSeries([
     { name: 'transmitters heard', color: window.TPMS_COLORS[1],
       points: data.points.map(p => ({ ts: p.ts, value: p.sensors })) },
-    { name: 'drive-bys', color: window.TPMS_COLORS[2],
+    { name: 'passes', color: window.TPMS_COLORS[2],
       points: data.points.map(p => ({ ts: p.ts, value: p.passes })) },
   ], range);
   activityCharts.readings.setCaption(bucket

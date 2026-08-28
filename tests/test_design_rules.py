@@ -199,3 +199,34 @@ def test_no_dead_css_for_the_removed_timeline():
     css = (STATIC / "app.css").read_text()
     for selector in (".timeline", ".tl-row", ".tl-bar", ".tl-fill"):
         assert selector not in css, f"{selector} has no markup that emits it"
+
+
+def test_the_program_has_no_fourth_word_for_a_pass(client):
+    """A vehicle going by is a pass, on every page that shows one.
+
+    The charts on the vehicle page were filed under "comings and goings",
+    which named the same object a fourth time and matched nothing else.
+    """
+    for path in ("/", "/vehicles", "/vehicles/1", "/events"):
+        html = client.get(path).text.lower()
+        for word in ("comings and goings", "drive-by", "appearances"):
+            assert word not in html, f"{word} on {path}"
+
+
+def test_a_flag_shared_by_most_cards_is_explained_once(client):
+    """Nearly every vehicle is provisional, so a paragraph per card was the
+    same sentence down the whole grid -- and it buried the review notes,
+    which do differ card to card."""
+    html = client.get("/vehicles").text
+    assert html.count("Grouped from a single pass") <= 1
+    # The flag itself stays on the cards: the tooltip carries the sentence.
+    assert 'class="pill warn"' in (TEMPLATES / "vehicles.html").read_text()
+
+
+def test_stacked_facets_are_titled(client):
+    """Two plots in one panel with no titles read as one confused figure: the
+    caption of the first sits directly above the second."""
+    chart = (STATIC / "chart.js").read_text()
+    assert "chart-title" in chart, "chart.js must render the label it is given"
+    for path in ("/", "/sensors/1", "/vehicles/1"):
+        assert "label: '" in client.get(path).text, path

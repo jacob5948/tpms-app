@@ -64,7 +64,7 @@ def test_an_open_appearance_runs_up_to_now(ingestor, db):
 def test_buckets_count_arrivals(visits):
     db, vehicle_id = visits
     presence = q.vehicle_presence(db, vehicle_id, GAP, buckets=5)
-    assert sum(b["appearances"] for b in presence["buckets"]) == 3
+    assert sum(b["passes"] for b in presence["buckets"]) == 3
     # Empty buckets are kept: a quiet week is the point of the chart.
     assert len(presence["buckets"]) == 5
 
@@ -80,7 +80,7 @@ def test_airtime_spreads_across_the_buckets_it_covers(ingestor, db):
 
     buckets = q.vehicle_presence(db, vehicle_id, GAP, start=0, end=3600, buckets=4)["buckets"]
     assert all(b["audible_seconds"] > 600 for b in buckets)
-    assert sum(b["appearances"] for b in buckets) == 1
+    assert sum(b["passes"] for b in buckets) == 1
 
 
 def test_a_window_keeps_an_appearance_that_straddles_its_edge(visits):
@@ -115,7 +115,7 @@ def test_the_vehicle_page_hosts_the_chart(tmp_path):
     service.ingestor.sweep(when=9e9)
     service.recluster()
     html = TestClient(create_app(service)).get("/vehicles/1").text
-    assert 'id="chart-presence"' in html and 'id="chart-appearances"' in html
+    assert 'id="chart-presence"' in html and 'id="chart-frequency"' in html
     # One range row for the page, not one per chart.
     assert html.count('id="chart-range"') == 1
 
@@ -130,7 +130,7 @@ def test_window_runs_to_now_not_to_the_last_appearance(visits):
     assert presence["end"] >= time.time() - 5
     assert presence["end"] > last
     # The silence since is drawn rather than cropped away.
-    assert presence["buckets"][-1]["appearances"] == 0
+    assert presence["buckets"][-1]["passes"] == 0
     assert presence["buckets"][-1]["ts"] > last
 
 

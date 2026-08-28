@@ -97,7 +97,7 @@
         <td><input type="checkbox" name="sensor" value="{{ s.pk }}"
                    aria-label="Select {{ s.display }} to split out"></td>
         <td>{{ m.sensor_cell(s) }}</td>
-        <td>
+        <td class="actions">
           <label class="sr-only" for="wheel-{{ s.pk }}">Wheel label for {{ s.display }}</label>
           <input form="wheel-form-{{ s.pk }}" id="wheel-{{ s.pk }}" type="text"
                  name="wheel_label" value="{{ s.wheel_label or '' }}"
@@ -168,34 +168,23 @@
 </div>
 {% endif %}
 
-<h2>Comings and goings</h2>
-<p class="sub">
-  When this vehicle was audible, and how often it turned up. Both plots and the
-  pressure chart below share the range buttons and the cursor, so a window
-  chosen once applies to all three.
-</p>
-<div id="chart-range"></div>
-<div class="panel">
-  <div id="chart-presence"></div>
-  <div id="chart-appearances"></div>
-</div>
-
-<h2>Pressure history</h2>
-<div class="panel">
-  <div id="chart"></div>
-  <script id="chart-data" type="application/json">{{ history | tojson }}</script>
-  <script id="chart-names" type="application/json">{{ sensors | map(attribute='display') | list | tojson }}</script>
-  <script id="chart-pks" type="application/json">{{ sensors | map(attribute='pk') | list | tojson }}</script>
-</div>
-
+{# One section, not two: the plots and the table are the same passes, and
+   splitting them across the page left the charts under a name of their own
+   ("comings and goings") that appeared nowhere else in the program. #}
 <div class="head-row">
   <h2>Passes</h2>
   {{ m.log_link(vehicle_id=vehicle.pk, text='Open in the log') }}
 </div>
 <p class="sub">
-  Merged across all wheels: from the first wheel heard to the last. The same
-  rows the log shows, filtered to this vehicle.
+  One pass is this vehicle going by, merged across all wheels: first wheel
+  heard to last. The two plots and the pressure chart below share the range
+  buttons and the cursor, so a window chosen once applies to all three.
 </p>
+<div id="chart-range"></div>
+<div class="panel">
+  <div id="chart-presence"></div>
+  <div id="chart-frequency"></div>
+</div>
 <div class="panel">
   {% if intervals %}
   <div class="scroll"><table>
@@ -219,6 +208,14 @@
   <div class="empty">No passes recorded.</div>
   {% endif %}
 </div>
+
+<h2>Pressure history</h2>
+<div class="panel">
+  <div id="chart"></div>
+  <script id="chart-data" type="application/json">{{ history | tojson }}</script>
+  <script id="chart-names" type="application/json">{{ sensors | map(attribute='display') | list | tojson }}</script>
+  <script id="chart-pks" type="application/json">{{ sensors | map(attribute='pk') | list | tojson }}</script>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -234,17 +231,17 @@
   /* A pass is a state that holds until it ends, so it is drawn as a
    * step between "away" and "audible" rather than a line through the two. */
   const presence = tpmsChart(document.getElementById('chart-presence'), [], {
-    label: 'When this vehicle was audible', height: 110, sync: sync,
+    label: 'When each pass happened', height: 110, sync: sync,
     zeroBased: true, noTable: true, ySplits: [0, 1],
     formatValue: v => (v >= 0.5 ? 'audible' : 'away'),
     empty: 'No passes recorded yet.',
-    caption: 'Each block is one pass, first wheel heard to last. ' +
-             'Listed exactly in Passes below.',
+    caption: 'One block per pass, first wheel heard to last; a pass still ' +
+             'in progress runs to now. Every block is a row in the table below.',
   });
   /* The blocks above go sub-pixel across a month; a count per bucket stays
    * readable at any zoom, and is the one that shows a pattern. */
-  const appearances = tpmsChart(document.getElementById('chart-appearances'), [], {
-    label: 'Passes over time', height: 140, sync: sync,
+  const frequency = tpmsChart(document.getElementById('chart-frequency'), [], {
+    label: 'How often it passes', height: 140, sync: sync,
     zeroBased: true, decimals: 0, empty: 'No passes recorded yet.',
   });
   const chart = tpmsChart(document.getElementById('chart'), pks.map((sensorPk, i) => ({
@@ -256,7 +253,7 @@
   });
 
   const bar = tpmsRangeBar(document.getElementById('chart-range'), {
-    charts: [presence, appearances, chart], active: 'all',
+    charts: [presence, frequency, chart], active: 'all',
     onRange: seconds => { load(seconds); loadPresence(seconds); },
   });
 
@@ -280,7 +277,7 @@
 
   async function loadPresence(seconds) {
     const since = seconds ? Math.round(seconds / 60) + 'm' : null;
-    [presence, appearances].forEach(c => c.setLoading(true));
+    [presence, frequency].forEach(c => c.setLoading(true));
     try {
       const url = '/api/vehicles/' + pk + '/presence' + (since ? '?since=' + since : '');
       const response = await fetch(url);
@@ -289,21 +286,22 @@
       const range = seconds || 'all';
       presence.setSeries([{ name: 'audible', kind: 'step',
         points: blocks(body.intervals, body.end) }], range);
-      appearances.setSeries([{ name: 'passes', kind: 'bar',
+      frequency.setSeries([{ name: 'passes', kind: 'bar',
         color: window.TPMS_COLORS[1],
-        points: body.buckets.map(b => ({ ts: b.ts, value: b.appearances })) }], range);
+        points: body.buckets.map(b => ({ ts: b.ts, value: b.passes })) }], range);
       // All three plots share a window, so they must share an end. Without
       // this the pressure chart stops at its last reading and, being in the
       // same sync group, drags the other two back with it.
-      [presence, appearances, chart].forEach(c => c.setXMax(body.end));
+      [presence, frequency, chart].forEach(c => c.setXMax(body.end));
       const bucket = body.width ? Math.max(1, Math.round(body.width / 60)) : 0;
-      appearances.setCaption(bucket
+      frequency.setCaption(bucket
         ? 'Passes per ' + (bucket >= 120 ? Math.round(bucket / 60) + '-hour'
-                                             : bucket + '-minute') + ' bucket.'
+                                         : bucket + '-minute') + ' bucket, ' +
+          'counted where each one began -- so one long pass is one bar, not a run.'
         : 'Nothing to bucket yet.');
       bar.refresh();
     } catch (e) {
-      [presence, appearances].forEach(c => c.setError(
+      [presence, frequency].forEach(c => c.setError(
         'Could not load this vehicle\u2019s passes.', () => loadPresence(seconds)));
     }
   }

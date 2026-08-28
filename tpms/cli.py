@@ -513,7 +513,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     for vehicle in q.vehicle_summaries(db, config.sessions.gap_seconds):
         print(
             f"  {vehicle['name']:28} {vehicle['sensor_count']} sensors, "
-            f"{vehicle['appearances']} appearances, last {vehicle['last_seen_iso'] or '-'}"
+            f"{vehicle['passes']} passes, last {vehicle['last_seen_iso'] or '-'}"
         )
     return 0
 

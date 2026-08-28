@@ -9,16 +9,17 @@ import io
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BeforeValidator
 
 from .. import queries as q
-from ..models import now as now_ts, parse_when, to_iso
+from ..models import Vehicle, now as now_ts, parse_when, to_iso
 from ..retention import human_bytes
 from ..service import Service
 
@@ -38,6 +39,20 @@ FLASH_COOKIE = "tpms_flash"
 #: Set by static/forms.js on the submissions it handles itself. Those want the
 #: outcome as JSON rather than a whole page they are not going to render.
 ASYNC_HEADER = "x-tpms-async"
+
+
+def _blank_to_none(value: Any) -> Any:
+    """Read an empty filter box as "no filter" rather than a bad number.
+
+    The filter form and the links built from it spell every filter out, so an
+    unset vehicle arrives as ``vehicle=`` and was rejected as an unparseable
+    integer.
+    """
+    return None if value == "" else value
+
+
+#: An id filter that may arrive absent, or present but empty.
+OptionalId = Annotated[int | None, BeforeValidator(_blank_to_none)]
 
 
 def _fmt_duration(seconds: float | None) -> str:
@@ -158,6 +173,19 @@ def create_app(service: Service) -> FastAPI:
             status_code=400,
         )
 
+    def _vehicle_choices() -> list[Vehicle]:
+        """Vehicles as a pick-list: named ones A-Z, unnamed ones after.
+
+        Insertion order is meaningless to someone hunting for a name in a
+        dropdown, and the unnamed ones are numbered, so they read as a run
+        rather than scattered between the names.
+        """
+        return sorted(
+            db.list_vehicles(),
+            key=lambda v: (v.name is None or not v.name.strip(),
+                           (v.name or "").strip().casefold(), v.pk),
+        )
+
     # -- pages ------------------------------------------------------------
 
     @app.get("/", response_class=HTMLResponse)
@@ -168,7 +196,7 @@ def create_app(service: Service) -> FastAPI:
             heard=q.heard_now_groups(db),
             gap=gap,
             now=now_ts(),
-            vehicles=db.list_vehicles(),
+            vehicles=_vehicle_choices(),
         )
 
     @app.get("/vehicles", response_class=HTMLResponse)
@@ -195,7 +223,7 @@ def create_app(service: Service) -> FastAPI:
             sensors=sensors,
             history=history,
             intervals=q.vehicle_intervals(db, vehicle_id, gap, limit=100),
-            all_vehicles=[v for v in db.list_vehicles() if v.pk != vehicle_id],
+            all_vehicles=[v for v in _vehicle_choices() if v.pk != vehicle_id],
         )
 
     @app.get("/sensors", response_class=HTMLResponse)
@@ -211,7 +239,7 @@ def create_app(service: Service) -> FastAPI:
             visible=[r for r in rows if not r["ignored"]],
             hidden=[r for r in rows if r["ignored"]],
             duplicates=q.alias_groups(db),
-            vehicles=db.list_vehicles(),
+            vehicles=_vehicle_choices(),
         )
 
     @app.get("/sensors/{sensor_pk}", response_class=HTMLResponse)
@@ -225,7 +253,7 @@ def create_app(service: Service) -> FastAPI:
             nav="sensors",
             s=detail,
             gap=gap,
-            vehicles=db.list_vehicles(),
+            vehicles=_vehicle_choices(),
         )
 
     @app.get("/events", response_class=HTMLResponse)
@@ -233,8 +261,8 @@ def create_app(service: Service) -> FastAPI:
         request: Request,
         since: str | None = None,
         until: str | None = None,
-        vehicle: int | None = None,
-        sensor: int | None = None,
+        vehicle: OptionalId = None,
+        sensor: OptionalId = None,
         view: str = "passes",
         limit: int = 1000,
     ):
@@ -280,7 +308,7 @@ def create_app(service: Service) -> FastAPI:
             total=total,
             truncated=truncated,
             limit=limit,
-            vehicles=db.list_vehicles(),
+            vehicles=_vehicle_choices(),
             focus_sensor=focus or None,
             filters={
                 "since": since or "",
@@ -360,7 +388,7 @@ def create_app(service: Service) -> FastAPI:
         return templates.TemplateResponse(
             request,
             "_heard.html",
-            {"heard": q.heard_now_groups(db), "vehicles": db.list_vehicles()},
+            {"heard": q.heard_now_groups(db), "vehicles": _vehicle_choices()},
         )
 
     @app.get("/api/heard-now")
@@ -630,8 +658,8 @@ def create_app(service: Service) -> FastAPI:
     def export_csv(
         since: str | None = None,
         until: str | None = None,
-        vehicle: int | None = None,
-        sensor: int | None = None,
+        vehicle: OptionalId = None,
+        sensor: OptionalId = None,
         view: str = "passes",
     ):
         """The log as a file, in whichever shape the page is showing.

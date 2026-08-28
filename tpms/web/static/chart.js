@@ -152,6 +152,10 @@ window.TPMS_COLORS = ['#4d8bf5', '#3fb950', '#a371f7', '#f85149', '#39c5cf', '#f
 
     el.classList.add('chart');
     el.innerHTML =
+      // Every caller passed a label and nothing ever drew it, so stacked
+      // facets ran together and each one's caption read as the next one's
+      // heading. The title is what tells them apart.
+      (opts.label ? '<h3 class="chart-title">' + esc(opts.label) + '</h3>' : '') +
       '<div class="chart-plot"></div>' +
       '<div class="chart-zoom row" hidden><span class="chart-window muted"></span>' +
       '<button type="button" class="chip">Reset zoom</button></div>' +

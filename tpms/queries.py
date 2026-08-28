@@ -195,7 +195,7 @@ def vehicle_presence(
         "buckets": [
             {
                 "ts": lo + (i + 0.5) * width,
-                "appearances": counts[i],
+                "passes": counts[i],
                 "audible_seconds": round(audible[i], 1),
             }
             for i in range(buckets)
@@ -244,7 +244,7 @@ def vehicle_summaries(db: Database, join_gap: float) -> list[dict[str, Any]]:
                 "reading_count": int(row["reading_count"] or 0),
                 "last_seen": row["last_seen"],
                 "last_seen_iso": to_iso(row["last_seen"]),
-                "appearances": len(intervals),
+                "passes": len(intervals),
                 "present": bool(intervals and intervals[0].open),
                 "sensors": [
                     sensor_row(db, s.pk, residents, duty_cycles, bands_by_sensor)
