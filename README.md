@@ -1,6 +1,6 @@
 # TPMS watch
 
-Passively capture tyre-pressure sensor (TPMS) transmissions with `rtl_433`, log
+Passively capture tire-pressure sensor (TPMS) transmissions with `rtl_433`, log
 them to SQLite, correlate individual sensor IDs into the vehicles they belong
 to, and track when each vehicle appears and goes quiet.
 
@@ -503,7 +503,7 @@ and, for known failures, the fix. The **Status** page shows the same under
 **No packets at all.** Confirm the dongle and decoding by hand first:
 
 ```bash
-rtl_433 -f 315M -F json          # drive a car past, or squeeze a tyre valve
+rtl_433 -f 315M -F json          # drive a car past, or squeeze a tire valve
 ```
 
 If that is silent, the problem is hardware, gain, antenna or frequency — not

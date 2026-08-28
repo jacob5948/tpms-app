@@ -228,7 +228,7 @@
   // second scale on one plot would invite reading a relationship off where
   // the two happened to line up. The cursor is synced instead.
   const psi = tpmsChart(document.getElementById('chart-psi'), [], {
-    label: 'Tyre pressure over time', height: 190, sync: 'sensor-{{ s.pk }}',
+    label: 'Tire pressure over time', height: 190, sync: 'sensor-{{ s.pk }}',
     caption: 'psi, oldest to newest reading.',
   });
   const temp = tpmsChart(document.getElementById('chart-temp'), [], {
