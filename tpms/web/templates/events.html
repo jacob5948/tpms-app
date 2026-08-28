@@ -8,15 +8,8 @@
   <div>
     <h1>Traffic log</h1>
     <p class="sub">
-      {% if view == 'passes' %}
-        One row per vehicle going past, with the wheels it was heard on rolled
-        up. &ldquo;Last heard&rdquo; is exactly that &mdash; a vehicle goes
-        quiet because it left, or because it stopped moving.
-      {% else %}
-        One row per sensor sighting, exactly as the receiver decoded it. This
-        is the view to match against a car you watched go past: every
-        transmitter audible at that moment, unmerged.
-      {% endif %}
+      {% if view == 'passes' %}One row per vehicle going past.
+      {% else %}One row per sensor sighting, unmerged.{% endif %}
     </p>
   </div>
 </div>

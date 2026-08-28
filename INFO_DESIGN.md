@@ -123,6 +123,17 @@ the heading of the second. `tpmsChart` draws the `label` every caller already
 passed. The vehicle page's plots were also filed under "comings and goings",
 a fourth name for a pass — see the three nouns above.
 
+**The page states what a thing is, never why the program does it that way.**
+A sensor's identity is model + ID; *why* raw IDs collide between protocols is
+in the README, and re-reading it on every page load is not what the Sensors
+page is for. Prose on screen has three jobs — warn before something
+irreversible, state a truncation, tell an empty page what to do next — and a
+control that names its own action does not also get a paragraph telling you to
+press it. Every `<h1>` and most `<h2>`s once carried a paragraph, and several
+facts were written out in three places at once: on the page, in the tooltip of
+the pill that carried the flag, and again in the confirm dialog. The rule below
+is the case where this was caught first; it applies to the whole UI.
+
 **A flag most rows share is explained once.** Nearly every vehicle is
 provisional, and the review reason is nearly always the same one, so a
 paragraph per card came out as one sentence repeated down the whole grid,

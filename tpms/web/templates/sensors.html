@@ -5,11 +5,7 @@
 <div class="page-head">
   <div>
     <h1>Sensors</h1>
-    <p class="sub">
-      Every distinct transmitter heard. Identity is model + ID together,
-      because raw IDs collide between protocols. Open any sensor for its full
-      history, the sensors it was heard alongside, and its raw packets.
-    </p>
+    <p class="sub">Every distinct transmitter heard, by model and ID.</p>
   </div>
   <form class="inline" method="post" data-busy="Scanning…" action="/api/aliases">
     <button type="submit">Re-scan for duplicates</button>
@@ -20,17 +16,17 @@
   {{ m.stat('Transmitters', visible | length, 'after folding duplicates',
             target='sensor-table') }}
   {{ m.stat('Audible now', visible | selectattr('present') | list | length,
-            'click to filter', flag='present', target='sensor-table') }}
+            flag='present', target='sensor-table') }}
   {{ m.stat('Unassigned', visible | rejectattr('vehicle_id') | list | length,
-            'click to filter', flag='unassigned', target='sensor-table') }}
-  {{ m.stat('Duplicate groups', duplicates | length, 'click to filter',
+            flag='unassigned', target='sensor-table') }}
+  {{ m.stat('Duplicate groups', duplicates | length,
             flag='duplicates', target='sensor-table') }}
   {{ m.stat('New today', visible | selectattr('new') | list | length,
-            'first heard in the last 24h', flag='new', target='sensor-table') }}
+            'last 24h', flag='new', target='sensor-table') }}
   {{ m.stat('Resident', visible | selectattr('resident') | list | length,
             'parked in range, not passing', flag='resident', target='sensor-table') }}
   {% if hidden %}
-  {{ m.stat('Hidden', hidden | length, 'click to show', flag='hidden',
+  {{ m.stat('Hidden', hidden | length, flag='hidden',
             target='sensor-table') }}
   {% endif %}
 </div>
@@ -44,22 +40,8 @@
 
 {{ m.sensor_table(sensors, id='sensor-table') }}
 
-{% if hidden %}
-<p class="sub">
-  {{ hidden | length }} sensor{{ '' if hidden | length == 1 else 's' }} hidden
-  by hand &mdash; still recorded, kept out of this list, the live view and
-  clustering. Use the <strong>Hidden</strong> tile above to see them.
-</p>
-{% endif %}
-
 {% if duplicates %}
 <h2>Duplicate decodes ({{ duplicates | length }})</h2>
-<p class="sub">
-  Several rtl_433 decoders can match the same RF burst with different framing,
-  so one transmitter shows up under several protocol names. These were
-  identified by an identical signal level at the identical instant, and are
-  folded into the sensor they are listed under above.
-</p>
 <div class="panel scroll">
   <table>
     <thead><tr><th>Kept as</th><th>Also decoded as</th></tr></thead>

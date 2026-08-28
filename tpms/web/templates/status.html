@@ -4,9 +4,7 @@
 {% block body %}
 <h1>Status</h1>
 <p class="sub">
-  Receiver health and capture totals. Every time in this program is shown in
-  <strong>{{ timezone }}</strong>; set <code>timezone:</code> in config.yaml
-  to change it.
+  Receiver health and capture totals. All times in <strong>{{ timezone }}</strong>.
 </p>
 
 <div class="panel">
@@ -44,8 +42,8 @@
   {% if status.radio.stderr_tail %}
   <h2>Why the receiver stopped</h2>
   <p class="sub tight">
-    rtl_433's own output from its last run{% if status.radio.exit_code is not none %},
-    which exited with code {{ status.radio.exit_code }}{% endif %}.
+    rtl_433's last run{% if status.radio.exit_code is not none %},
+    exit code {{ status.radio.exit_code }}{% endif %}.
   </p>
   <pre class="mono block">{% for line in status.radio.stderr_tail %}{{ line }}
 {% endfor %}</pre>
@@ -64,22 +62,20 @@
     {{ m.stat(key.replace('_', ' '), value) }}
     {% endfor %}
   </div>
+  {# Ingest counts since start-up: data, so tiles rather than a sentence. #}
+  <div class="stats">
+    {{ m.stat('Ingested', status.ingest.readings, 'since start', tier='secondary') }}
+    {{ m.stat('Skipped', status.ingest.skipped, 'non-TPMS', tier='secondary') }}
+    {{ m.stat('Unparseable', status.ingest.malformed, tier='secondary') }}
+    {% if status.aliases %}{{ m.stat('Duplicate decodes', status.aliases, tier='secondary') }}{% endif %}
+  </div>
   <p class="sub spaced">
-    Database: <span class="mono">{{ status.database }}</span><br>
-    Ingest since start: {{ status.ingest.readings }} readings,
-    {{ status.ingest.skipped }} non-TPMS skipped,
-    {{ status.ingest.malformed }} unparseable lines.<br>
-    {% if status.aliases %}Duplicate decodes: {{ status.aliases }}<br>{% endif %}
-    {% if status.clustering %}Last clustering run: {{ status.clustering }}{% endif %}
+    <span class="mono">{{ status.database }}</span>
+    {%- if status.clustering %}<br>Last clustering run: {{ status.clustering }}{% endif %}
   </p>
 </div>
 
 <h2>Storage</h2>
-<p class="sub">
-  What the capture costs on disk, and how fast that is growing. Housekeeping
-  runs daily inside the service; <code>tpms prune --dry-run</code> shows what
-  the next run would do.
-</p>
 <div class="panel">
   <div class="stats primary">
     {{ m.stat('Database', status.storage.bytes | bytes,
@@ -95,20 +91,20 @@
                 else '%.0f days of capture') % status.storage.capture_days)
               if status.storage.capture_days else None) }}
   </div>
+  {# The retention policy is three values, so it reads as three tiles. #}
+  <div class="stats">
+    {{ m.stat('Raw kept', (status.storage.policy.raw_days ~ ' days')
+              if status.storage.policy.raw_days else 'forever', tier='secondary') }}
+    {{ m.stat('Readings kept', (status.storage.policy.readings_days ~ ' days')
+              if status.storage.policy.readings_days else 'forever', tier='secondary') }}
+    {{ m.stat('Sightings kept', 'forever', tier='secondary') }}
+  </div>
   <p class="sub spaced">
-    Keeping raw packet text for
-    <strong>{{ status.storage.policy.raw_days if status.storage.policy.raw_days
-               else 'ever' }}{{ ' days' if status.storage.policy.raw_days }}</strong>,
-    readings
-    <strong>{% if status.storage.policy.readings_days %}for
-      {{ status.storage.policy.readings_days }} days{% else %}forever{% endif %}</strong>.
-    Sightings are never pruned &mdash; the traffic log is the history, and it
-    costs a fraction of what it summarises.<br>
     {% if status.storage.last_housekeeping %}
-      Last run {{ status.storage.last_housekeeping | ago }}:
+      Housekeeping ran {{ status.storage.last_housekeeping | ago }}:
       {{ status.storage.last_housekeeping_summary }}
     {% else %}
-      No housekeeping run yet this session; the first is 5 minutes after start-up.
+      No housekeeping run yet this session.
     {% endif %}
   </p>
 </div>
@@ -131,11 +127,6 @@
 {% endif %}
 
 <h2>Bands heard on</h2>
-<p class="sub">
-  Every reading ever stored, by band. Tuning to a band is not the same as
-  hearing anything there -- this is the column that tells you whether a second
-  band is earning its share of the hop cycle.
-</p>
 <div class="panel scroll">
   {% if status.bands %}
   <table>

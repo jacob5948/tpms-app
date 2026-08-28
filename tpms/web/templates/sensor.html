@@ -15,16 +15,14 @@
       {% if s.present %}<span class="dot live"></span>{% endif %}{{ s.display }}
       {% if s.wheel_label %}<span class="pill">{{ s.wheel_label }}</span>{% endif %}
       {% if s.pinned %}<span class="pill">pinned</span>{% endif %}
-      {% if s.resident %}<span class="pill warn">resident</span>{% endif %}
+      {% if s.resident %}<span class="pill warn" title="Audible {{ '%.0f%%' % (s.duty_cycle * 100) }} of the time &mdash; parked in range, not passing.">resident</span>{% endif %}
       {% if s.ignored %}<span class="pill">hidden</span>{% endif %}
     </h1>
     <p class="sub">
       {% if s.alias_of %}
-        A duplicate decode of {{ m.sensor_link(s.alias_of, s.alias_of_display) }} &mdash;
-        the same transmitter picked up by a second protocol.
+        A duplicate decode of {{ m.sensor_link(s.alias_of, s.alias_of_display) }}.
       {% else %}
         Decoded by <strong>{{ s.model }}</strong> as ID <strong>{{ s.sensor_id }}</strong>.
-        Identity is the pair: raw IDs collide between protocols.
       {% endif %}
     </p>
   </div>
@@ -83,10 +81,6 @@
       <button class="primary" type="submit">Move</button>
     </form>
   </div>
-  <p class="sub spaced-sm">
-    Labelling a wheel changes nothing else. Moving it to a vehicle by hand
-    pins it, so clustering will not move it back.
-  </p>
 </div>
 
 <div class="panel">
@@ -124,39 +118,7 @@
       </button>
     </form>
   </div>
-  <p class="sub spaced-sm">
-    {% if s.ignored %}
-      This sensor is kept out of the sensor list, the live view, the traffic
-      charts and clustering. Its readings are still being recorded, and this
-      page still shows everything about it.
-    {% else %}
-      Hiding is for transmitters that are real but not interesting &mdash; a
-      neighbour's car parked in range. It leaves the lists, the live view and
-      clustering, but keeps recording. Nothing is deleted; that is
-      <code>tpms purge</code>.
-    {% endif %}
-  </p>
 </div>
-
-{% if s.resident %}
-<div class="note">
-  <strong>Resident transmitter.</strong> Audible {{ '%.0f%%' % (s.duty_cycle * 100) }}
-  of the time it has been on record, so it is parked within range rather than
-  driving past. It is therefore audible while every passing car goes by, and a
-  single shared moment says nothing about them belonging together &mdash; so it
-  is not allowed to seed a one-pass grouping. Repeated co-occurrence still
-  counts, and naming it pins it out of the clusterer's way entirely.
-</div>
-{% endif %}
-
-{% if s.bands | length > 1 %}
-<div class="note">
-  Heard on more than one band:
-  {% for b in s.bands %}<strong>{{ b.label }}</strong> ({{ b.count }} reading{{ '' if b.count == 1 else 's' }}){{ ', ' if not loop.last }}{% endfor %}.
-  Expected while hopping; on a single-band setup it usually means the decoder's
-  frequency estimate is drifting.
-</div>
-{% endif %}
 
 <h2>Pressure &amp; temperature</h2>
 <div class="panel">
@@ -168,10 +130,7 @@
 
 <h2>Heard alongside</h2>
 <p class="sub">
-  Sensors audible at the same moments as this one &mdash; the evidence
-  clustering runs on. <strong>Support</strong> is the share of the rarer
-  sensor's sightings the two shared, which is what separates wheels on one car
-  from two cars that passed together once.
+  <strong>Support</strong> is the share of the rarer sensor's sightings the two shared.
 </p>
 <div class="panel scroll">
   {% if s.heard_with %}
@@ -203,18 +162,13 @@
   </table>
   {% else %}
   <div class="empty">
-    Never heard at the same time as another sensor. A lone sensor cannot be
-    clustered into a vehicle &mdash; it needs company to correlate with.
+    Never heard at the same time as another sensor, so it cannot be clustered.
   </div>
   {% endif %}
 </div>
 
 {% if s.aliases %}
 <h2>Duplicate decodes</h2>
-<p class="sub">
-  The same RF burst matched by other protocols. Their readings are counted
-  here, and clustering ignores them so one transmitter cannot look like three.
-</p>
 <div class="panel">
   <div class="row">
     {% for a in s.aliases %}{{ m.sensor_link(a.pk, a.display) }}{% endfor %}
@@ -226,11 +180,7 @@
   <h2>Sightings</h2>
   {{ m.log_link(sensor_pk=s.pk, text='Open in the log') }}
 </div>
-<p class="sub">
-  Each run of readings with no gap longer than {{ gap | int }}s. A sighting
-  ending means the sensor went quiet, which usually but not always means the
-  vehicle left range.
-</p>
+<p class="sub">Each run of readings with no gap longer than {{ gap | int }}s.</p>
 <div class="panel scroll">
   {% if s.sightings %}
   <table>
@@ -263,10 +213,7 @@
 <details class="panel raw">
   <summary>Last raw packet</summary>
   <pre class="mono">{{ s.raw }}</pre>
-  <p class="sub spaced-sm">
-    Exactly as rtl_433 emitted it, at {{ s.latest_ts_iso }}. Every line is also
-    archived to <code>raw/</code>, so a normalization bug loses nothing.
-  </p>
+  <p class="sub spaced-sm">As rtl_433 emitted it, at {{ s.latest_ts_iso }}.</p>
 </details>
 {% endif %}
 {% endblock %}
@@ -281,7 +228,7 @@
   // the two happened to line up. The cursor is synced instead.
   const psi = tpmsChart(document.getElementById('chart-psi'), [], {
     label: 'Tyre pressure over time', height: 190, sync: 'sensor-{{ s.pk }}',
-    caption: 'psi, oldest to newest reading. Drag to zoom, double-click to reset.',
+    caption: 'psi, oldest to newest reading.',
   });
   const temp = tpmsChart(document.getElementById('chart-temp'), [], {
     label: 'Temperature over time', height: 150, sync: 'sensor-{{ s.pk }}',

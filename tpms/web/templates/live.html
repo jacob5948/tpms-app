@@ -3,12 +3,7 @@
 {% block title %}Live &middot; TPMS{% endblock %}
 {% block body %}
 <h1>Live</h1>
-<p class="sub">
-  Sensors are considered audible while readings keep arriving at least every
-  {{ gap | int }}s. TPMS sensors sleep when the wheel stops turning, so a sensor
-  going quiet usually means the vehicle drove out of range &mdash; but a parked
-  car falls silent too.
-</p>
+<p class="sub">Audible while readings keep arriving within {{ gap | int }}s.</p>
 
 <div class="stats primary">
   {{ m.stat('Vehicles present', heard.vehicles | length,
@@ -39,20 +34,11 @@
   <h2>Heard now</h2>
   <a class="quiet" href="/events">Open the log &rarr;</a>
 </div>
-<p class="sub">
-  Grouped by vehicle, so a car going past reads as one thing rather than four.
-  If you can see what is passing, name it or claim its sensors here &mdash;
-  that is far easier now than from the log tomorrow.
-</p>
 <div class="panel" id="heard-panel" aria-live="polite" aria-label="Currently audible">
   {% include "_heard.html" %}
 </div>
 
 <h2>Incoming readings</h2>
-<p class="sub">
-  Every decoded transmission as it lands, unmerged &mdash; the raw evidence
-  behind everything above.
-</p>
 <div class="panel scroll" id="feed" aria-live="polite" aria-label="Incoming readings">
   <table data-nosort>
     <thead><tr>
@@ -116,11 +102,10 @@ async function loadActivity(seconds) {
       points: data.points.map(p => ({ ts: p.ts, value: p.passes })) },
   ], range);
   activityCharts.readings.setCaption(bucket
-    ? 'Readings per ' + bucket + '-minute bucket. How much RF got through.'
+    ? 'Readings per ' + bucket + '-minute bucket.'
     : 'Nothing captured yet.');
   activityCharts.sensors.setCaption(
-    'Distinct transmitters audible in each bucket, and how many sightings ' +
-    'began in it. A resident sensor lifts the bars above without lifting these.');
+    'Distinct transmitters audible in each bucket, and sightings begun in it.');
   activityBar.refresh();
   const asof = document.getElementById('activity-asof');
   asof.innerHTML = 'as of <span data-ts="' + (Date.now() / 1000).toFixed(0) + '">just now</span>';

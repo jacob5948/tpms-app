@@ -78,18 +78,29 @@ class ClusterReport:
     provisional: list[list[int]] = field(default_factory=list)
 
     def summary(self) -> str:
-        return (
-            f"{len(self.components)} cluster(s), "
-            f"+{self.vehicles_created} vehicle(s), -{self.vehicles_removed} empty, "
-            f"{self.sensors_assigned} sensor(s) assigned, "
-            f"{self.sensors_unassigned} unassigned, "
-            f"{len(self.provisional)} provisional, "
-            f"{len(self.oversized)} oversized, "
-            f"{len(self.mixed_families)} mixed id families, "
-            f"{len(self.skipped_manual)} left to manual control, "
-            f"{len(self.skipped_aliases)} duplicate decode(s) ignored, "
-            f"{len(self.skipped_ignored)} hidden"
-        )
+        """What the run changed, and nothing it did not.
+
+        This was once every counter in the report, printed whether or not it
+        moved, which came out as a ten-clause comma run where "0 oversized, 0
+        mixed id families" crowded out the three numbers anyone reads. A count
+        that stayed at zero is not news.
+        """
+        parts = [f"{len(self.components)} cluster(s)"]
+        for count, label in (
+            (self.vehicles_created, "+%d vehicle(s)"),
+            (self.vehicles_removed, "-%d empty"),
+            (self.sensors_assigned, "%d sensor(s) assigned"),
+            (self.sensors_unassigned, "%d unassigned"),
+            (len(self.provisional), "%d provisional"),
+            (len(self.oversized), "%d oversized"),
+            (len(self.mixed_families), "%d mixed id families"),
+            (len(self.skipped_manual), "%d left to manual control"),
+            (len(self.skipped_aliases), "%d duplicate decode(s) ignored"),
+            (len(self.skipped_ignored), "%d hidden"),
+        ):
+            if count:
+                parts.append(label % count)
+        return ", ".join(parts)
 
 
 class Clusterer:

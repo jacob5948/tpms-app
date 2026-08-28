@@ -10,7 +10,7 @@
 <h1>
   {{ vehicle.display }}
   {% if sensors | selectattr('present') | list %}<span class="pill live"><span class="dot live"></span>heard now</span>{% endif %}
-  {% if vehicle.provisional %}<span class="pill warn">provisional</span>{% endif %}
+  {% if vehicle.provisional %}<span class="pill warn" title="Heard together on one pass only. Clears on the next shared pass, or when you name it.">provisional</span>{% endif %}
 </h1>
 <p class="sub">
   {{ sensors | length }} sensor{{ '' if sensors | length == 1 else 's' }} &middot;
@@ -25,33 +25,13 @@
   {{ m.stat('Readings', sensors | sum(attribute='reading_count')) }}
 </div>
 
-{% if vehicle.provisional %}
-<div class="note">
-  <strong>Provisional.</strong> These sensors were heard together on a single
-  pass and share a decoder and signal level, which is consistent with one
-  vehicle but not proof. The flag clears itself when they are heard together
-  again on a later pass &mdash; or straight away if you name the vehicle, or
-  pin every wheel, since either says the grouping is yours rather than a guess.
-</div>
-{% endif %}
-
 {% if vehicle.needs_review %}
 <div class="note">
   {% if vehicle.review_reason == 'mixed_families' %}
-  <strong>Mixed ID blocks.</strong> These sensors' IDs fall into several
-  unrelated blocks. A wheel set is numbered together at the factory, so a
-  cluster spanning blocks is more likely two vehicles that were heard at the
-  same moment than one car. Co-occurrence alone cannot tell those apart.
+  <strong>Mixed ID blocks.</strong> Likely two vehicles heard at the same moment.
   {% else %}
-  This cluster holds {{ sensors | length }} sensors &mdash; at or past what a
-  single vehicle carries. Two vehicles that always travel together are
-  indistinguishable by co-occurrence alone, so this may need splitting.
+  <strong>{{ sensors | length }} sensors</strong> &mdash; more than one vehicle carries.
   {% endif %}
-  <p class="spaced-sm">
-    Tick the sensors that belong to the other vehicle in the table below and
-    press <strong>Split into a new vehicle</strong>, or clear the flag if the
-    grouping is right.
-  </p>
   <form class="inline" method="post" data-busy="Clearing…"
         action="/api/vehicles/{{ vehicle.pk }}/review-cleared">
     <button type="submit">It's correct, clear the flag</button>
@@ -66,26 +46,18 @@
     <input type="text" name="notes" placeholder="Notes" value="{{ vehicle.notes or '' }}" class="field-grow">
     <button class="primary" type="submit">Save</button>
   </form>
-  <p class="sub spaced-sm">
-    Naming a vehicle marks it as manually curated; the clusterer will no longer
-    reshape it.
-  </p>
 </div>
 
 <h2>Sensors</h2>
-<p class="sub">
-  The wheels grouped into this vehicle. Label one, or tick the ones that do
-  not belong and send them somewhere else.
-</p>
 
 {# One form around the table, so the same tick does for every action that
    takes a set of sensors; the buttons choose the action with formaction. The
    per-row controls are their own forms, declared below -- HTML forbids
    nesting them here. #}
 <form method="post" data-selection action="/api/vehicles/{{ vehicle.pk }}/split">
-{# The table, the bar that acts on it and the note about what the bar does are
-   one object, so they sit in one panel. The bar used to be a sibling of it,
-   which left it floating between two bordered boxes belonging to neither. #}
+{# The table and the bar that acts on it are one object, so they sit in one
+   panel. The bar used to be a sibling of it, which left it floating between
+   two bordered boxes belonging to neither. #}
 <div class="panel">
   <div class="scroll">
   <table class="has-select">
@@ -148,6 +120,7 @@
             data-needs="input[name=sensor]:checked" data-needs-remainder
             data-needs-message="Tick the sensors to split out first."
             formaction="/api/vehicles/{{ vehicle.pk }}/split"
+            title="They are pinned where they land, so the next clustering run leaves them there."
             data-confirm="Move the ticked sensors into a new vehicle of their own?">
       Split into a new vehicle
     </button>
@@ -172,6 +145,7 @@
             data-needs="input[name=sensor]:checked" data-gated-by="#move-target"
             data-needs-message="Tick the sensors to move first."
             formaction="/api/vehicles/{{ vehicle.pk }}/move"
+            title="They are pinned where they land, so the next clustering run leaves them there."
             data-confirm="Move the ticked sensors off {{ vehicle.display }}?">
       Move
     </button>
@@ -183,15 +157,12 @@
             data-needs="input[name=sensor]:checked"
             data-needs-message="Tick the sensors to unassign first."
             formaction="/api/vehicles/{{ vehicle.pk }}/move"
+            title="They are pinned where they land, so the next clustering run leaves them there."
             data-confirm="Take the ticked sensors off {{ vehicle.display }}?">
       Unassign
     </button>
     {% endif %}
   </div>
-  <p class="sub">
-    Either way they are pinned where they land, so the next clustering run
-    leaves them there.
-  </p>
 </div>
 </form>
 
@@ -229,10 +200,6 @@
       <button class="danger" type="submit">Merge</button>
     </form>
   </div>
-  <p class="sub spaced-sm">
-    The chosen vehicle's sensors move here and it is removed. Splitting them
-    back out later is possible, but its name and notes are not.
-  </p>
 </div>
 {% endif %}
 
@@ -243,11 +210,6 @@
   <h2>Passes</h2>
   {{ m.log_link(vehicle_id=vehicle.pk, text='Open in the log') }}
 </div>
-<p class="sub">
-  One pass is this vehicle going by, merged across all wheels: first wheel
-  heard to last. The two plots and the pressure chart below share the range
-  buttons and the cursor, so a window chosen once applies to all three.
-</p>
 <div id="chart-range"></div>
 <div class="panel">
   <div id="chart-presence"></div>
@@ -303,8 +265,7 @@
     zeroBased: true, noTable: true, ySplits: [0, 1],
     formatValue: v => (v >= 0.5 ? 'audible' : 'away'),
     empty: 'No passes recorded yet.',
-    caption: 'One block per pass, first wheel heard to last; a pass still ' +
-             'in progress runs to now. Every block is a row in the table below.',
+    caption: 'One block per pass, first wheel heard to last.',
   });
   /* The blocks above go sub-pixel across a month; a count per bucket stays
    * readable at any zoom, and is the one that shows a pattern. */
@@ -317,7 +278,7 @@
     points: (data[sensorPk] || []).map(r => ({ ts: r.ts, value: r.pressure_psi })),
   })), {
     label: 'Tyre pressure over time', sync: sync,
-    caption: 'psi per wheel, oldest to newest. Drag to zoom, double-click to reset.',
+    caption: 'psi per wheel, oldest to newest.',
   });
 
   const bar = tpmsRangeBar(document.getElementById('chart-range'), {
@@ -364,8 +325,7 @@
       const bucket = body.width ? Math.max(1, Math.round(body.width / 60)) : 0;
       frequency.setCaption(bucket
         ? 'Passes per ' + (bucket >= 120 ? Math.round(bucket / 60) + '-hour'
-                                         : bucket + '-minute') + ' bucket, ' +
-          'counted where each one began -- so one long pass is one bar, not a run.'
+                                         : bucket + '-minute') + ' bucket.'
         : 'Nothing to bucket yet.');
       bar.refresh();
     } catch (e) {
