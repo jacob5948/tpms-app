@@ -74,16 +74,15 @@
 <h2>Sensors</h2>
 <p class="sub">
   The wheels grouped into this vehicle. Correcting a grouping is the point of
-  this table: label a wheel, move one elsewhere, or tick several and split
-  them out into a vehicle of their own.
+  this table: label a wheel, or tick the ones that do not belong and send them
+  somewhere else.
 </p>
 
-{# One form around the table so several sensors can leave together. The
-   per-row controls are their own forms, which is why the split button posts
-   to a different action than they do. #}
-<form method="post" data-busy="Splitting…"
-      action="/api/vehicles/{{ vehicle.pk }}/split"
-      data-confirm="Move the ticked sensors into a new vehicle of their own?">
+{# One form around the table, so the same tick does for every action that
+   takes a set of sensors; the buttons choose the action with formaction. The
+   per-row controls are their own forms, declared below -- HTML forbids
+   nesting them here. #}
+<form method="post" action="/api/vehicles/{{ vehicle.pk }}/split">
 <div class="panel scroll">
   <table>
     <thead><tr>
@@ -95,7 +94,7 @@
       {% for s in sensors %}
       <tr>
         <td><input type="checkbox" name="sensor" value="{{ s.pk }}"
-                   aria-label="Select {{ s.display }} to split out"></td>
+                   aria-label="Select {{ s.display }}"></td>
         <td>{{ m.sensor_cell(s) }}</td>
         <td class="actions">
           <label class="sr-only" for="wheel-{{ s.pk }}">Wheel label for {{ s.display }}</label>
@@ -109,18 +108,11 @@
         <td class="num">{{ s.reading_count }}</td>
         {{ m.when(s.last_seen) }}
         <td class="actions">
-          <label class="sr-only" for="move-{{ s.pk }}">Move {{ s.display }}</label>
-          <select form="move-form-{{ s.pk }}" id="move-{{ s.pk }}" name="vehicle_id">
-            <option value="{{ vehicle.pk }}">stay here</option>
-            <option value="new">split to new vehicle</option>
-            <option value="none">unassign</option>
-            {% for other in all_vehicles %}
-            <option value="{{ other.pk }}">move to {{ other.display }}</option>
-            {% endfor %}
-          </select>
-          <button form="move-form-{{ s.pk }}" type="submit">Apply</button>
-          {# The handler has always supported this; nothing rendered it, so a
-             sensor placed by hand could never be handed back. #}
+          {# Where a sensor goes is a bulk action, taken below. What is left
+             on the row is the one thing that is only ever about this sensor:
+             whether clustering may move it. The handler has always supported
+             it; nothing rendered it, so a sensor placed by hand could never
+             be handed back. #}
           <button form="pin-form-{{ s.pk }}" type="submit" name="pinned"
                   value="{{ 0 if s.pinned else 1 }}"
                   title="{{ 'Let clustering place this sensor again' if s.pinned
@@ -133,18 +125,39 @@
     </tbody>
   </table>
 </div>
-<div class="row">
-  <button type="submit">Split selected out</button>
-  <span class="sub">Moves the ticked sensors into a new vehicle and pins them there.</span>
+{# Every action that takes a set of sensors, in one bar under the set. #}
+<div class="row bulk">
+  <strong class="field-title">With the ticked sensors:</strong>
+  <button type="submit" data-busy="Splitting…"
+          formaction="/api/vehicles/{{ vehicle.pk }}/split"
+          data-confirm="Move the ticked sensors into a new vehicle of their own?">
+    Split into a new vehicle
+  </button>
+  <span class="sub">or</span>
+  <label class="sr-only" for="move-target">Move the ticked sensors to</label>
+  <select id="move-target" name="target">
+    <option value="">Move to&hellip;</option>
+    {% for other in all_vehicles %}
+    <option value="{{ other.pk }}">{{ other.display }}</option>
+    {% endfor %}
+    <option value="none">no vehicle &mdash; unassign them</option>
+  </select>
+  <button type="submit" data-busy="Moving…"
+          formaction="/api/vehicles/{{ vehicle.pk }}/move"
+          data-confirm="Move the ticked sensors off {{ vehicle.display }}?">
+    Move
+  </button>
 </div>
+<p class="sub spaced-sm">
+  Either way they are pinned where they land, so the next clustering run
+  leaves them there.
+</p>
 </form>
 
 {# Declared outside the split form: HTML forbids nesting, so the row controls
    reach them by `form=` instead. #}
 {% for s in sensors %}
 <form id="wheel-form-{{ s.pk }}" method="post" data-async data-busy="Saving…"
-      action="/api/sensors/{{ s.pk }}" hidden></form>
-<form id="move-form-{{ s.pk }}" method="post" data-busy="Moving…"
       action="/api/sensors/{{ s.pk }}" hidden></form>
 <form id="pin-form-{{ s.pk }}" method="post" data-busy="Saving…"
       action="/api/sensors/{{ s.pk }}" hidden></form>

@@ -97,11 +97,23 @@ def test_slow_actions_report_their_summary(client):
 
 
 def test_every_mutating_form_declares_a_busy_state(client):
-    """Whether it navigates or not, the button must stop looking idle."""
+    """Whether it navigates or not, the button must stop looking idle.
+
+    A form carrying several actions declares it per button instead -- one
+    "Saving..." for two different verbs would be a lie about which ran.
+    """
     api, _ = client
     import re
 
     for path in ("/vehicles", "/vehicles/1", "/sensors", "/sensors/1", "/status"):
         html = api.get(path).text
-        for form in re.findall(r"<form[^>]*method=\"post\"[^>]*>", html):
-            assert "data-busy" in form or "data-async" in form, (path, form)
+        for match in re.finditer(r"<form[^>]*method=\"post\"[^>]*>", html):
+            form = match.group(0)
+            if "data-busy" in form or "data-async" in form:
+                continue
+            body = html[match.end():].split("</form>")[0]
+            # Buttons with form= belong to a form declared elsewhere.
+            own = [b for b in re.findall(r"<button[^>]*>", body) if "form=" not in b]
+            assert own, (path, form)
+            for button in own:
+                assert "data-busy" in button, (path, button)

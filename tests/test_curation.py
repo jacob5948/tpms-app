@@ -167,6 +167,93 @@ def test_splitting_everything_is_refused(client):
     assert response.status_code == 400
 
 
+# -- moving in bulk ---------------------------------------------------------
+
+
+def test_moving_the_ticked_sensors_to_another_vehicle(client):
+    """The row control was a select carrying every vehicle in the program,
+    repeated on every row, defaulting to "stay here" -- a non-action. One
+    picker under the table does the same job for any number of sensors."""
+    api, service = client
+    vehicle, members = _vehicle_with_several_sensors(service.db)
+    other = next(v for v in service.db.list_vehicles() if v.pk != vehicle.pk)
+    chosen = [s.pk for s in members[:2]]
+
+    api.post(f"/api/vehicles/{vehicle.pk}/move",
+             data={"sensor": [str(pk) for pk in chosen], "target": str(other.pk)},
+             follow_redirects=False)
+
+    assert all(service.db.get_sensor(pk).vehicle_id == other.pk for pk in chosen)
+    # Pinned for the same reason a split is: otherwise clustering undoes it.
+    assert all(service.db.get_sensor(pk).pinned for pk in chosen)
+
+
+def test_moving_sensors_to_no_vehicle_unassigns_them(client):
+    api, service = client
+    vehicle, members = _vehicle_with_several_sensors(service.db)
+
+    api.post(f"/api/vehicles/{vehicle.pk}/move",
+             data={"sensor": str(members[0].pk), "target": "none"},
+             follow_redirects=False)
+
+    assert service.db.get_sensor(members[0].pk).vehicle_id is None
+
+
+def test_moving_the_last_sensor_off_a_vehicle_lands_somewhere_that_exists(client):
+    """The vehicle is deleted once it is empty, so the page the request came
+    from is gone -- following the referer back would land on a 404."""
+    api, service = client
+    vehicle, members = _vehicle_with_several_sensors(service.db)
+    other = next(v for v in service.db.list_vehicles() if v.pk != vehicle.pk)
+
+    response = api.post(
+        f"/api/vehicles/{vehicle.pk}/move",
+        data={"sensor": [str(s.pk) for s in members], "target": str(other.pk)},
+        headers={"referer": f"http://testserver/vehicles/{vehicle.pk}"},
+        follow_redirects=False,
+    )
+
+    assert service.db.get_vehicle(vehicle.pk) is None
+    assert response.headers["location"] == f"/vehicles/{other.pk}"
+
+
+@pytest.mark.parametrize("payload", [
+    {"target": "1"},                     # nothing ticked
+    {"sensor": [], "target": "1"},
+])
+def test_moving_nothing_is_refused(client, payload):
+    api, service = client
+    vehicle, _ = _vehicle_with_several_sensors(service.db)
+    assert api.post(f"/api/vehicles/{vehicle.pk}/move", data=payload).status_code == 400
+
+
+def test_moving_without_a_destination_is_refused(client):
+    """The picker opens on "Move to..." -- a prompt, not a destination."""
+    api, service = client
+    vehicle, members = _vehicle_with_several_sensors(service.db)
+    response = api.post(f"/api/vehicles/{vehicle.pk}/move",
+                        data={"sensor": str(members[0].pk), "target": ""})
+    assert response.status_code == 400
+    assert service.db.get_sensor(members[0].pk).vehicle_id == vehicle.pk
+
+
+def test_moving_sensors_where_they_already_are_is_refused(client):
+    api, service = client
+    vehicle, members = _vehicle_with_several_sensors(service.db)
+    response = api.post(f"/api/vehicles/{vehicle.pk}/move",
+                        data={"sensor": str(members[0].pk), "target": str(vehicle.pk)})
+    assert response.status_code == 400
+
+
+def test_one_tick_serves_every_bulk_action(client):
+    """Split and move read the same checkboxes, from one form."""
+    html = client[0].get("/vehicles/1").text
+    body = html.split('<form method="post"')[1].split("</form>")[0]
+    assert body.count('name="sensor"') >= 1
+    assert "/split" in body and "/move" in body
+    assert "stay here" not in html, "a control whose default does nothing"
+
+
 # -- guards that used to be 500s --------------------------------------------
 
 

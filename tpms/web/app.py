@@ -464,6 +464,7 @@ def create_app(service: Service) -> FastAPI:
         request: Request,
         fallback: str = "/vehicles",
         message: str | None = None,
+        keep_referer: bool = True,
         **detail: Any,
     ):
         """Answer a mutation.
@@ -475,9 +476,10 @@ def create_app(service: Service) -> FastAPI:
         """
         if request.headers.get(ASYNC_HEADER):
             return JSONResponse({"ok": True, "message": message or "Saved.", **detail})
-        response = RedirectResponse(
-            request.headers.get("referer", fallback), status_code=303
-        )
+        # keep_referer=False: the page the request came from may not exist
+        # any more -- moving the last sensor off a vehicle deletes it.
+        landing = request.headers.get("referer", fallback) if keep_referer else fallback
+        response = RedirectResponse(landing, status_code=303)
         if message:
             # quote(): messages carry vehicle names, and a stray comma or
             # semicolon would truncate the cookie.
@@ -563,6 +565,55 @@ def create_app(service: Service) -> FastAPI:
             request,
             f"/vehicles/{target}",
             f"Split {len(chosen)} sensor(s) out into {_vehicle_name(target)}.",
+        )
+
+    @app.post("/api/vehicles/{vehicle_id}/move")
+    async def move_sensors(request: Request, vehicle_id: int):
+        """Move the ticked sensors to another vehicle, or off vehicles entirely.
+
+        One picker under the table, not one per row. The row control was a
+        select carrying every vehicle in the program -- repeated down every
+        row, defaulting to a non-action ("stay here"), and with "split" and
+        "unassign" mixed into the same list as the destinations.
+        """
+        form = await request.form()
+        if db.get_vehicle(vehicle_id) is None:
+            raise HTTPException(404, "vehicle not found")
+        try:
+            wanted = {int(v) for v in form.getlist("sensor")}
+        except ValueError:
+            raise HTTPException(400, "not a sensor") from None
+        chosen = wanted & {s.pk for s in db.sensors_for_vehicle(vehicle_id)}
+        if not chosen:
+            raise HTTPException(400, "tick the sensors to move first")
+
+        raw = (form.get("target") or "").strip()
+        if not raw:
+            raise HTTPException(400, "pick where to move them")
+        if raw == "none":
+            target = None
+        else:
+            try:
+                target = int(raw)
+            except ValueError:
+                raise HTTPException(400, "not a vehicle") from None
+            if db.get_vehicle(target) is None:
+                raise HTTPException(404, "vehicle not found")
+            if target == vehicle_id:
+                raise HTTPException(400, "those sensors are already here")
+
+        for pk in sorted(chosen):
+            db.set_sensor_vehicle(pk, target)
+            # A manual placement only sticks if clustering keeps its hands
+            # off, so pin them as part of the same action.
+            db.execute("UPDATE sensors SET pinned = 1 WHERE pk = ?", (pk,))
+        db.delete_empty_vehicles()
+        return _back(
+            request,
+            f"/vehicles/{target}" if target else "/vehicles",
+            f"Moved {len(chosen)} sensor(s) to "
+            + (_vehicle_name(target) if target else "no vehicle") + ".",
+            keep_referer=db.get_vehicle(vehicle_id) is not None,
         )
 
     @app.post("/api/vehicles/{vehicle_id}/review-cleared")

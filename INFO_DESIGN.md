@@ -63,6 +63,13 @@ ask for.
 pins the sensor. Anything that pins must also be un-pinnable from the UI: a
 one-way door is not a correction loop.
 
+**One selection, one bar of actions.** Anything that acts on a set of rows
+reads the ticks and lives in a bar under the table, sharing one form. The
+vehicle page once put a select on every row carrying every vehicle in the
+program, defaulting to "stay here" — a non-action — with "split" and
+"unassign" mixed in among the destinations. A per-row control is for what is
+true of that row alone: on that table, only pinning.
+
 **Reshaping vehicles asks first.** Merge and split reparent every sensor
 involved and cannot be undone in one click, so they carry `data-confirm`.
 Labelling a wheel does not, because it changes nothing else — and must not:

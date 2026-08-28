@@ -44,7 +44,9 @@
     // so disabling here cannot drop a field.
     button.disabled = true;
     button.classList.add('busy');
-    button.textContent = form.dataset.busy || 'Saving…';
+    // The button's own wording wins: one form can carry two actions, and
+    // "Splitting..." on the button that moves is a lie.
+    button.textContent = button.dataset.busy || form.dataset.busy || 'Saving…';
     return () => {
       button.disabled = false;
       button.classList.remove('busy');
@@ -70,15 +72,21 @@
     const form = event.target;
     if (!form.matches('form') || form.method.toLowerCase() !== 'post') return;
 
+    /* The button that was pressed, where the browser tells us: one form can
+     * carry several actions, and busying the first button while a different
+     * one runs points at the wrong thing. */
+    const button = event.submitter
+      || form.querySelector('button[type="submit"], button:not([type])');
+
     /* Merging and splitting reparent every sensor on a vehicle and cannot be
-     * undone with one click, so they ask first. Without JS the submit goes
-     * through as before -- the server is still the thing that decides. */
-    if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) {
+     * undone with one click, so they ask first. The question belongs to
+     * whichever action was pressed, falling back to the form's. Without JS
+     * the submit goes through as before -- the server still decides. */
+    const confirm = (button && button.dataset.confirm) || form.dataset.confirm;
+    if (confirm && !window.confirm(confirm)) {
       event.preventDefault();
       return;
     }
-
-    const button = form.querySelector('button[type="submit"], button:not([type])');
 
     if (form.dataset.async === undefined) {
       markBusy(button, form);   // then let the browser navigate as usual

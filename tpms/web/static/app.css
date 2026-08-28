@@ -377,6 +377,10 @@ table.inner th { color: var(--muted); font-weight: 500; }
 a.quiet { font-size: 13px; color: var(--muted); }
 a.quiet:hover { color: var(--accent); }
 
+/* Everything that acts on a set of ticked rows, gathered under the set. */
+.row.bulk { margin-top: 12px; }
+.row.bulk select { max-width: 20rem; }
+
 /* Row action clusters: several small controls that must not wrap apart. */
 td.actions { white-space: nowrap; }
 /* A select is as wide as its longest option, and one option carries a whole
