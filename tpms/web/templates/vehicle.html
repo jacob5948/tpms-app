@@ -173,10 +173,16 @@
 </form>
 
 {# Offered, not enforced: a wheel label is free text, but four vehicles
-   labelled FL, fl, "front left" and Front-Left are four vocabularies. #}
+   labelled FL, fl, "front left" and Front-Left are four vocabularies.
+
+   L and R are here because a sensor is often known to be on one side long
+   before anyone works out front from rear -- and the side is the whole of
+   what direction needs. Without them, recording a known side means either
+   guessing FL over RL or losing the fact. #}
 <datalist id="wheel-names">
-  <option value="FL"><option value="FR"><option value="RL"><option value="RR">
-  <option value="spare">
+  {% for value, label in wheel_positions %}
+  <option value="{{ value }}" label="{{ label }}">
+  {% endfor %}
 </datalist>
 
 {# Declared outside the split form: HTML forbids nesting, so the row controls

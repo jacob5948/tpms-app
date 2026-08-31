@@ -40,6 +40,24 @@ disagree about the same afternoon.
 **Nothing is inferred about departure.** Sightings and passes end at *last
 heard*. There is no "left at" anywhere, in the schema or on screen.
 
+**The one guess is labelled as one.** Direction is the only thing the program
+infers rather than reports, and it earns that by never overstating itself. It
+rests on an absence -- the wheels that were *not* heard -- so it declines more
+often than it answers: nothing labelled, both sides heard at similar strength,
+or no levels to compare all produce an empty cell rather than a coin flip. A
+reading nothing contradicts is shown firm; one resting on a level comparison
+or on wheels whose side is unknown carries a "?" and a quieter style, and
+every one of them puts its basis in the tooltip. An inference the reader
+cannot audit is worse than none, because it reads as a measurement.
+
+**A side is not a direction.** The radio can only know which side of a vehicle
+faced it. Which way that points is a fact about the road, which only the person
+who owns the receiver knows, so `direction:` in the config names the two sides
+and the program never guesses them. Unnamed, the UI says "left side" and stops
+-- the honest half of the answer. Direction is computed at read time from the
+wheel labels as they are now, never stored: a stored guess goes stale the
+moment someone corrects a wheel.
+
 **Every mention of a sensor looks the same and links to the same place.**
 `_macros.html` owns that rendering — `sensor_link`, `sensor_cell`,
 `sensor_table`, `when`. A sensor once appeared on five pages with five column

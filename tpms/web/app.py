@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BeforeValidator
 
+from .. import direction as direction_mod
 from .. import queries as q
 from ..models import Vehicle, now as now_ts, parse_when, to_iso
 from ..retention import human_bytes
@@ -141,6 +142,13 @@ def create_app(service: Service) -> FastAPI:
 
     db = service.db
     gap = service.config.sessions.gap_seconds
+    # Named once: the log, the vehicle page and the CSV must all call a
+    # heading the same thing, and a second lookup is a second chance to
+    # disagree with the config.
+    direction_names = service.config.direction.names
+    rssi_margin = service.config.direction.rssi_margin
+    templates.env.globals["direction_names"] = direction_names
+    templates.env.globals["wheel_positions"] = direction_mod.WHEEL_POSITIONS
 
     def page(request: Request, name: str, **context: Any) -> HTMLResponse:
         context.setdefault("nav", name.replace(".html", ""))
@@ -301,7 +309,7 @@ def create_app(service: Service) -> FastAPI:
             rows = q.vehicle_passes(
                 db, gap, start=start, end=end, vehicle_id=vehicle,
                 sensor_pk=sensor, limit=limit, scan_limit=PASS_SCAN_LIMIT,
-                include_ignored=seeing_hidden,
+                include_ignored=seeing_hidden, rssi_margin=rssi_margin,
             )
             truncated = total > PASS_SCAN_LIMIT or len(rows) == limit
         else:
@@ -784,12 +792,12 @@ def create_app(service: Service) -> FastAPI:
             writer.writerow(
                 ["vehicle", "sensor", "first_heard", "last_heard", "duration_s",
                  "wheels_heard", "wheels_known", "readings", "max_rssi", "band",
-                 "still_audible"]
+                 "still_audible", "direction", "direction_basis"]
             )
             for row in q.vehicle_passes(
                 db, gap, start=start, end=end, vehicle_id=vehicle,
                 sensor_pk=sensor, limit=100000, scan_limit=1000000,
-                include_ignored=seeing_hidden,
+                include_ignored=seeing_hidden, rssi_margin=rssi_margin,
             ):
                 writer.writerow(
                     [
@@ -804,6 +812,11 @@ def create_app(service: Service) -> FastAPI:
                         row["max_rssi"] if row["max_rssi"] is not None else "",
                         row["band"] or "",
                         "yes" if row["open"] else "no",
+                        # The screen and the CSV are one view, so a column the
+                        # log shows is a column the export carries.
+                        row["heading"].name(direction_names)
+                        if row["heading"] else "",
+                        row["heading"].basis if row["heading"] else "",
                     ]
                 )
         else:

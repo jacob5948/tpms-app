@@ -116,6 +116,26 @@
   {{- '%.1f' % s.rssi if s.rssi is not none else '—' -}}</td>
 {% endmacro %}
 
+{#
+  A pass's direction, or nothing at all.
+
+  Rendered here because the log and the vehicle page both show it and must
+  show it identically. A guess the radio is not sure of is marked, and the
+  basis is always one hover away -- an inference the reader cannot audit is
+  worse than no inference, because it looks like a measurement.
+#}
+{% macro heading_cell(heading) %}
+<td data-sort="{{ heading.side if heading else '' }}">
+  {%- if heading -%}
+  <span class="pill heading{{ ' tentative' if not heading.firm }}"
+        title="{{ heading.basis }}{{ '' if heading.firm else ' — a guess, not a reading' }}">
+    {{- heading.name(direction_names) -}}
+    {%- if not heading.firm %}?{% endif -%}
+  </span>
+  {%- else -%}<span class="muted">—</span>{%- endif -%}
+</td>
+{% endmacro %}
+
 {% macro battery(battery_ok) %}
 {%- if battery_ok == 0 -%}<span class="pill warn">low</span>
 {%- elif battery_ok == 1 -%}<span class="pill ok">ok</span>

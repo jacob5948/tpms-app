@@ -64,7 +64,12 @@
           action="/api/sensors/{{ s.pk }}">
       <label class="sr-only" for="wheel">Wheel label</label>
       <input id="wheel" type="text" name="wheel_label" value="{{ s.wheel_label or '' }}"
-             placeholder="Wheel, e.g. FL" size="8">
+             list="wheel-names" placeholder="Wheel, e.g. FL" size="8">
+      <datalist id="wheel-names">
+        {% for value, label in wheel_positions %}
+        <option value="{{ value }}" label="{{ label }}">
+        {% endfor %}
+      </datalist>
       <button type="submit">Label</button>
     </form>
     <form class="inline right" method="post" data-busy="Moving…"

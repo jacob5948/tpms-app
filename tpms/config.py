@@ -82,6 +82,18 @@ DEFAULTS: dict[str, Any] = {
         "single_pass_rssi_spread": 10.0,
         "auto_interval_seconds": 300,
     },
+    "direction": {
+        # Which wheels were heard says which side of the vehicle faced the
+        # receiver. Only you know which way traffic on that side is going, so
+        # name the two sides here and the log will use the names. Left unset,
+        # the UI reports "left side" / "right side" and claims nothing more.
+        "left": None,
+        "right": None,
+        # When both sides are audible the near one is the louder one -- but a
+        # single reading's level swings a few dB on nothing, so a call needs
+        # this much of a gap before it is worth making.
+        "rssi_margin": 6.0,
+    },
     "web": {
         "host": "0.0.0.0",
         "port": 8080,
@@ -186,6 +198,20 @@ class ClusterConfig:
 
 
 @dataclass
+class DirectionConfig:
+    #: What to call a pass whose left / right side faced the receiver --
+    #: "northbound", "towards town". None means report the side itself.
+    left: str | None = None
+    right: str | None = None
+    #: dB one side must beat the other by before the louder is called nearer.
+    rssi_margin: float = 6.0
+
+    @property
+    def names(self) -> dict[str, str | None]:
+        return {"left": self.left, "right": self.right}
+
+
+@dataclass
 class WebConfig:
     host: str = "0.0.0.0"
     port: int = 8080
@@ -224,6 +250,7 @@ class Config:
     sessions: SessionConfig = field(default_factory=SessionConfig)
     aliases: AliasConfig = field(default_factory=AliasConfig)
     clustering: ClusterConfig = field(default_factory=ClusterConfig)
+    direction: DirectionConfig = field(default_factory=DirectionConfig)
     web: WebConfig = field(default_factory=WebConfig)
     retention: RetentionConfig = field(default_factory=RetentionConfig)
     #: Directory the config file was loaded from; relative paths resolve here.
@@ -290,6 +317,7 @@ def load_config(path: str | Path | None = None) -> Config:
         sessions=SessionConfig(**data["sessions"]),
         aliases=AliasConfig(**data["aliases"]),
         clustering=ClusterConfig(**data["clustering"]),
+        direction=DirectionConfig(**data["direction"]),
         web=WebConfig(**data["web"]),
         retention=RetentionConfig(**data["retention"]),
         base_dir=base_dir,

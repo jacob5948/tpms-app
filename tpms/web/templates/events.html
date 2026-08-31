@@ -89,7 +89,8 @@
   <table id="rows">
     <thead><tr>
       <th>First heard</th><th>Last heard</th><th class="num">Duration</th>
-      <th>Vehicle</th><th class="num">Wheels</th><th class="num">Readings</th>
+      <th>Vehicle</th><th>Direction</th><th class="num">Wheels</th>
+      <th class="num">Readings</th>
       <th class="num">Peak RSSI</th><th>Band</th><th></th>
     </tr></thead>
     <tbody>
@@ -109,6 +110,7 @@
             <span class="pill" title="Not grouped into a vehicle yet">unassigned</span>
           {%- endif -%}
         </td>
+        {{ m.heading_cell(p.heading) }}
         <td class="num" data-sort="{{ p.wheels_heard }}"
             title="Transmitters heard on this pass{% if p.wheels_known %}, out of {{ p.wheels_known }} known on this vehicle{% endif %}">
           {{ p.wheels_heard }}{% if p.wheels_known %}<span class="muted">/{{ p.wheels_known }}</span>{% endif %}
@@ -130,7 +132,7 @@
       {# Rendered, not fetched: without JS these are simply visible, which is
          the correct fallback for "the evidence behind this row". #}
       <tr class="sub-rows" id="pass-{{ loop.index }}" data-nosort>
-        <td colspan="9">
+        <td colspan="10">
           <table class="inner">
             <thead><tr>
               <th>Sensor</th><th>First heard</th><th>Last heard</th>

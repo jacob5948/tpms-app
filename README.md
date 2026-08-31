@@ -60,6 +60,31 @@ is involved:
 .venv/bin/tpms serve --no-radio            # browse the result
 ```
 
+## Which way was it going
+
+Which wheels were heard says which side of the vehicle faced the receiver: the
+near side has clear air to the antenna, the far side has the car in the way.
+
+Label some wheels — `FL`, `FR`, `RL`, `RR`, or plain `L` / `R` when you know
+the side but not whether it is the front or the rear — and the traffic log
+grows a **Direction** column. Turning a side into a direction needs something
+only you know, so name the two sides in `config.yaml`:
+
+```yaml
+direction:
+  left: northbound
+  right: southbound
+```
+
+Unnamed, the log reports "left side" / "right side" instead, which is as far as
+the radio can honestly go.
+
+The guess declines more often than it answers. A pass with no labelled wheels,
+or one where both sides were heard at similar strength, shows nothing at all
+rather than a coin flip. A call that rests on a level comparison, or on wheels
+whose side is unknown, is marked with a `?` and carries its reasoning in the
+tooltip.
+
 ## Commands
 
 | Command | What it does |

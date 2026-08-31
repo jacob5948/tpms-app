@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from . import direction
 from .db import Database
 from .models import band_label, band_of, now as now_ts, to_iso
 
@@ -640,6 +641,7 @@ def vehicle_passes(
     limit: int = 500,
     scan_limit: int = 20000,
     include_ignored: bool = False,
+    rssi_margin: float = 6.0,
 ) -> list[dict[str, Any]]:
     """The traffic log: one row per vehicle going past, newest first.
 
@@ -734,6 +736,14 @@ def vehicle_passes(
                     "reading_count": sum(int(r["reading_count"]) for r in members),
                     "wheels_heard": len(wheels),
                     "wheels_known": known.get(ident) if kind == "v" else None,
+                    # Which way it was pointing, from the wheels heard. Read
+                    # from the labels as they are now rather than stored: a
+                    # pass's direction changes the moment someone corrects a
+                    # wheel, and a cached one would be quietly wrong.
+                    "heading": direction.infer(
+                        [(r["wheel_label"], r["max_rssi"]) for r in members],
+                        rssi_margin,
+                    ),
                     "max_rssi": max(rssis) if rssis else None,
                     "band": band_label(newest["freq_mhz"]),
                     "sightings": [

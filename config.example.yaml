@@ -123,6 +123,24 @@ clustering:
   # Re-run clustering automatically this often (seconds). 0 disables.
   auto_interval_seconds: 300
 
+# Which wheels were heard says which side of the vehicle faced the receiver:
+# the near side has clear air to the antenna, the far side has the car in the
+# way. Turning a side into a direction needs something only you know -- which
+# way traffic on that side is going -- so name the two sides here and the log
+# will use the names. Leave them unset and it reports "left side" / "right
+# side" instead, which is the honest half of the answer.
+#
+# Direction is read from the wheel labels you set on each sensor (FL, FR, RL,
+# RR, or plain L / R when you know the side but not the end), so it says
+# nothing until some wheels are labelled.
+direction:
+  left: null      # e.g. northbound
+  right: null     # e.g. southbound
+  # When both sides are audible the near one is the louder one -- but a single
+  # reading's level swings a few dB on nothing at all, so one side must beat
+  # the other by this much before the guess is worth making.
+  rssi_margin: 6.0
+
 web:
   host: 0.0.0.0
   port: 8080

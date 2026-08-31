@@ -461,6 +461,18 @@ tbody tr:has(input[type="checkbox"][name="sensor"]:checked) td:first-child {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
+/* A direction the wheels agree on, and one the radio is guessing at. The
+   tentative form is deliberately quieter and carries a "?" in the markup:
+   an inference shown in the same weight as a measurement is read as one. */
+.pill.heading {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.pill.heading.tentative {
+  background: transparent; color: var(--muted);
+  border: 1px dashed var(--line);
+}
+
 /* The wheel label is data; pinned, +N, resident and hidden are flags. Four
    grey chips in one cell made the one that identifies the wheel the hardest
    to find. */
