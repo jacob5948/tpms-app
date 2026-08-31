@@ -140,8 +140,16 @@ def families(
 class Scorecard:
     """How well ID proximity agrees with what co-occurrence already decided."""
 
+    #: Confirmed pairs *within one decoder*. Cross-decoder pairs are excluded:
+    #: `are_near` refuses them by construction, so counting them in the
+    #: denominator measured how many of this capture's cars decode under two
+    #: protocols -- a real number, but not one about ID proximity, and it
+    #: dragged recall down by more than half on a real capture.
     confirmed_pairs: int = 0
     confirmed_near: int = 0
+    #: Confirmed pairs left out of the above, reported so the sample is not
+    #: silently smaller than it looks.
+    confirmed_cross_decoder: int = 0
     #: Same-decoder pairs never heard together at all -- near-certainly
     #: different vehicles, and the larger, more trustworthy sample.
     apart_pairs: int = 0
@@ -194,9 +202,12 @@ def evaluate(
 
     Two measurements, because either alone is easy to fool:
 
-    * **Recall** -- of pairs joined by a *confirmed* co-occurrence edge (heard
-      together repeatedly, over the support threshold), how many are ID-near.
-      Small sample, but these are as close to ground truth as this data gets.
+    * **Recall** -- of *same-decoder* pairs joined by a confirmed co-occurrence
+      edge (heard together repeatedly, over the support threshold), how many
+      are ID-near. Small sample, but these are as close to ground truth as this
+      data gets. Same-decoder because the control below is same-decoder: a rate
+      and its baseline have to be drawn from one population, and a cross-decoder
+      pair is one `are_near` can never call near whatever the distance.
     * **False positive rate** -- of same-decoder pairs never heard together at
       all, how many are ID-near anyway. Those are almost certainly different
       vehicles, so if this is high the signal is noise. Much larger sample.
@@ -214,6 +225,10 @@ def evaluate(
     for edge in clusterer.build_edges(eligible):
         heard_together.add((min(edge.a, edge.b), max(edge.a, edge.b)))
         if not edge.confirmed:
+            continue
+        left, right = parsed.get(edge.a), parsed.get(edge.b)
+        if left is None or right is None or left[0] != right[0]:
+            card.confirmed_cross_decoder += 1
             continue
         card.confirmed_pairs += 1
         if are_near(parsed, edge.a, edge.b, max_distance):

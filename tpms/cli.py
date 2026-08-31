@@ -371,6 +371,9 @@ def cmd_ids(args: argparse.Namespace) -> int:
     print("\nagreement with co-occurrence:")
     recall = card.recall
     print(f"  confirmed pairs:      {card.confirmed_pairs}")
+    if card.confirmed_cross_decoder:
+        print(f"  (excluding {card.confirmed_cross_decoder} cross-decoder pair(s), "
+              "which no distance can call near)")
     if recall is not None:
         print(f"  ...of which ID-near:  {card.confirmed_near} ({recall:.0%})")
     noise = card.false_positive_rate

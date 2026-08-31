@@ -12,6 +12,15 @@ from tpms.config import ClusterConfig
 from tpms.models import Reading, Sensor
 
 
+def _pass(ingestor, model, ids, at, bursts=3, step=40):
+    """One vehicle going by, the same shape the clustering tests use."""
+    for burst in range(bursts):
+        for index, sensor_id in enumerate(ids):
+            ingestor.ingest(
+                Reading(model=model, sensor_id=sensor_id, ts=at + burst * step + index * 0.4)
+            )
+
+
 def _sensor(pk, model, sensor_id):
     return Sensor(pk=pk, model=model, sensor_id=sensor_id, first_seen=0, last_seen=0,
                   reading_count=1, vehicle_id=None, wheel_label=None, pinned=False)
@@ -160,3 +169,21 @@ def service_with_history(tmp_path):
     _capture(svc, "Toyota", "0104db9c", 3, start=5_000_000)
     svc.ingestor.sweep(when=9e9)
     return svc
+
+
+def test_recall_and_its_control_come_from_one_population(ingestor, db):
+    """A cross-decoder pair is one `are_near` can never call near, whatever
+    the distance -- so counting it in the recall denominator measured how many
+    cars decode under two protocols, not whether IDs say anything.
+
+    The control has always been same-decoder pairs. A rate and its baseline
+    have to be drawn from the same population; on a real capture this alone
+    was most of the gap between 46% and the truth.
+    """
+    for i in range(5):
+        _pass(ingestor, "Toyota-TPMS", ["d9f1e496", "d9f1e4a3"], 10_000 + i * 7200)
+        _pass(ingestor, "Ford-TPMS", ["36dca165"], 10_000 + i * 7200)
+
+    card = idfamily.evaluate(db, ClusterConfig())
+    assert card.confirmed_cross_decoder, "the Ford/Toyota pairs must be set aside"
+    assert card.recall == 1.0, "every same-decoder confirmed pair is ID-near"
