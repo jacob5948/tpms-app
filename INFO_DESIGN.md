@@ -150,6 +150,19 @@ involved and cannot be undone in one click, so they carry `data-confirm`.
 Labelling a wheel does not, because it changes nothing else — and must not:
 the label form and the move form are separate forms for exactly this reason.
 
+**A closed set is chosen, never typed.** There are seven wheel positions and
+direction reads no others, so the control is a `select`, grouped, with every
+position and its meaning visible before anything is clicked. It was a text box
+with a `datalist`: it looked like free text, its options only appeared once the
+box was clicked, and what you clicked -- "front left" -- was not what it left
+behind -- "FL" -- so the control appeared to change the answer after it was
+given. A picker with one field also saves on change; the "Set" button beside it
+is the no-script fallback and is hidden from the script that replaces it. A
+label already stored outside the set is kept as an option of its own, because
+opening a page must never silently offer to erase data. And because a car has
+one front left, the picker marks the positions the vehicle's other wheels
+already wear.
+
 **Flagged work gathers into a queue.** `needs_review` and `provisional` are
 filter toggles on `/vehicles`, so the tiles *are* the worklist. A flag with no
 way to gather it is a flag nobody acts on.

@@ -344,7 +344,7 @@ th.sortable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 @media (prefers-reduced-motion: reduce) {
   .toast { animation: none; }
-  button.busy { animation: none; }
+  button.busy, select.busy { animation: none; }
 }
 
 /* -- small screens ------------------------------------------------------
@@ -518,6 +518,16 @@ td.actions { white-space: nowrap; }
    vehicle name -- left alone it pushes the buttons beside it off the table. */
 td.actions select { max-width: 13rem; }
 td.actions form { display: inline-flex; }
+
+/* The wheel position picker. The code it stores is the mono half of the
+   option ("FL"), so the closed control matches the pill it produces on the
+   row; a picker whose text and its own result look like two different
+   vocabularies is the thing this control replaced. */
+.wheel-picker { font-family: var(--mono); font-size: 13px; min-width: 9.5rem; }
+/* Saved on change, so the field itself carries the wait -- the button that
+   used to show it is hidden while script is running. Not `disabled`: the
+   value being sent lives in this control. */
+select.busy { cursor: progress; opacity: 0.65; animation: pulse 1.1s ease-in-out infinite; }
 button.link {
   background: none; border: none; padding: 0; font: inherit;
   color: var(--muted); text-decoration: underline; cursor: pointer;

@@ -21,19 +21,35 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-#: The wheel positions offered in the UI, in the order they are offered.
+#: The wheel positions offered in the UI, grouped as the picker offers them.
 #: `L` and `R` exist because a sensor is often known to be on one side long
 #: before anyone works out whether it is the front or the rear -- and side is
 #: the only part direction needs. Forcing a choice between FL and RL to record
 #: something known would either lose the fact or invent a detail.
-WHEEL_POSITIONS: tuple[tuple[str, str], ...] = (
-    ("FL", "front left"),
-    ("FR", "front right"),
-    ("RL", "rear left"),
-    ("RR", "rear right"),
-    ("L", "left, front or rear unknown"),
-    ("R", "right, front or rear unknown"),
-    ("spare", "spare"),
+#:
+#: The group headings carry what used to be written into the labels themselves
+#: ("left, front or rear unknown"): a picker states the qualification once, over
+#: the pair it applies to, rather than in every option a reader has to compare.
+WHEEL_POSITION_GROUPS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
+    ("Corner known", (
+        ("FL", "front left"),
+        ("FR", "front right"),
+        ("RL", "rear left"),
+        ("RR", "rear right"),
+    )),
+    ("Side only, front or rear unknown", (
+        ("L", "left"),
+        ("R", "right"),
+    )),
+    ("Not a road wheel", (
+        ("spare", "spare wheel"),
+    )),
+)
+
+#: The same positions, flat, in the order they are offered. One source of
+#: truth: a second list of the canonical set would drift from the picker.
+WHEEL_POSITIONS: tuple[tuple[str, str], ...] = tuple(
+    position for _, positions in WHEEL_POSITION_GROUPS for position in positions
 )
 
 LEFT = "left"
@@ -53,11 +69,11 @@ _OPPOSITE = {LEFT: RIGHT, RIGHT: LEFT}
 def side_of(label: str | None) -> str | None:
     """The side a wheel label names, or None if it names no side.
 
-    Labels are free text -- the datalist offers the canonical set but does not
-    enforce it -- so this is deliberately forgiving about case and spacing and
-    silent about anything it does not recognise. An unrecognised label is not
-    an error; it is a wheel whose side is unknown, which is exactly what the
-    caller does with it.
+    Labels are free text -- the picker offers the canonical set and the API
+    still accepts anything -- so this is deliberately forgiving about case and
+    spacing, and silent about anything it does not recognise. An unrecognised
+    label is not an error; it is a wheel whose side is unknown, which is
+    exactly what the caller does with it.
     """
     if not label:
         return None

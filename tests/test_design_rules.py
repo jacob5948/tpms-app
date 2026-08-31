@@ -144,6 +144,39 @@ def test_reshaping_a_vehicle_asks_first(client):
     assert "data-confirm" not in html.split('id="wheel-form-')[1][:200]
 
 
+def test_a_wheel_position_is_chosen_from_the_closed_set(client):
+    """Seven positions, all visible with their meanings, and no free-text box
+    that quietly rewrites "front left" as "FL" once it is clicked."""
+    from tpms.direction import WHEEL_POSITIONS
+
+    for path in ("/vehicles/1", "/sensors/1"):
+        html = client.get(path).text
+        assert "<datalist" not in html, path
+        assert 'name="wheel_label"' in html and "wheel-picker" in html, path
+        for value, label in WHEEL_POSITIONS:
+            assert f'value="{value}"' in html and label in html, (path, value)
+
+
+def test_the_wheel_picker_keeps_a_label_it_did_not_offer(client):
+    """The API still takes free text. A picker that dropped an unrecognised
+    label would offer to erase it just by rendering the page."""
+    html = client.get("/vehicles/1").text
+    assert "nearside boot" not in html
+    client.post("/api/sensors/1", data={"wheel_label": "nearside boot"},
+                follow_redirects=False)
+    assert 'value="nearside boot" selected' in client.get("/vehicles/1").text
+
+
+def test_a_one_field_picker_saves_itself_but_still_renders_its_button(client):
+    """Saving on change is the enhancement; the button is what is left when
+    the script does not run, so it must be in the HTML and hidden from JS."""
+    html = client.get("/vehicles/1").text
+    assert "data-save-on-change" in html and "data-fallback-for=" in html
+    forms = (STATIC / "forms.js").read_text()
+    assert "data-save-on-change" in forms and "requestSubmit" in forms
+    assert "fallback.hidden = true" in forms
+
+
 def test_the_review_queue_is_the_tiles(client):
     """A flag with no way to gather it is a flag nobody acts on."""
     html = client.get("/vehicles").text

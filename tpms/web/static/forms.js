@@ -158,7 +158,13 @@
       .catch(body => toast(
         (body && !(body instanceof Error) && body.message)
           || 'Could not save. Is the receiver still running?', 'err'))
-      .finally(() => done && done());
+      // Whatever the outcome, the form is no longer in flight. Row controls
+      // that show their own busy state need the end of it as well as the
+      // start, and only the success path fires tpms:saved.
+      .finally(() => {
+        if (done) done();
+        form.dispatchEvent(new CustomEvent('tpms:done', { bubbles: true }));
+      });
   });
 
   /* The tick and the bar under it.
@@ -229,8 +235,38 @@
     sync();
   }
 
+  /* A picker with one field saves itself.
+   *
+   * The wheel position was a text box beside a "Set" button, and pressing it
+   * was a second action for a choice that was already made -- the value the
+   * row will keep is the one now showing in the select. So changing it
+   * submits, and the toast reports it; the button stays in the HTML and is
+   * hidden from here, so with JS off the field is still submittable.
+   *
+   * The form is submitted *through* the button rather than on its own, so the
+   * submit carries a submitter and markBusy has something to make busy. */
+  function wireInstantSave(select) {
+    const form = select.form;
+    if (!form || select.dataset.wired) return;
+    select.dataset.wired = '1';
+    const fallback = select.id
+      && document.querySelector('[data-fallback-for="' + CSS.escape(select.id) + '"]');
+    if (fallback) fallback.hidden = true;
+    select.addEventListener('change', () => {
+      /* The busy state has to live on the field, because the button that
+       * carried it is now hidden -- and it is a class, never `disabled`: the
+       * entry list skips disabled controls, and this control *is* the value
+       * being sent. */
+      select.classList.add('busy');
+      if (fallback) form.requestSubmit(fallback);
+      else form.requestSubmit();
+    });
+    form.addEventListener('tpms:done', () => select.classList.remove('busy'));
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('form[data-selection]').forEach(wireSelection);
+    document.querySelectorAll('select[data-save-on-change]').forEach(wireInstantSave);
 
     // Whatever the last mutation did, reported on the page it landed on.
     const flash = document.getElementById('flash');

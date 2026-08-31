@@ -152,3 +152,46 @@
   {% if hint %}<div class="h">{{ hint }}</div>{% endif %}
 </div>
 {% endmacro %}
+
+{#
+  The wheel position picker, wherever a wheel is labelled.
+
+  This used to be a text box with a datalist behind it. It read as free text,
+  its options stayed hidden until the box was clicked, and what you clicked
+  ("front left") was not what it left in the box ("FL") -- a control that
+  appears to change your answer after you have given it.
+
+  The set is closed: direction reads these seven and nothing else. So a select
+  says so. Every position is visible with its meaning beside it, the value that
+  is stored is the one that was on screen, and the groups carry the
+  qualification once instead of in every option.
+
+  `taken` is the labels the vehicle's other wheels already wear -- a car has
+  one front left, and a picker that knows the set can say which are spoken for
+  rather than leaving two rows claiming the same corner.
+#}
+{% macro wheel_picker(s, form=None, taken=[]) %}
+{%- set field = 'wheel-' ~ s.pk -%}
+{%- set current = s.wheel_label or '' -%}
+{%- set canonical = wheel_positions | map(attribute='0') | list -%}
+<label class="sr-only" for="{{ field }}">Wheel position for {{ s.display }}</label>
+<select id="{{ field }}" name="wheel_label" class="wheel-picker" data-save-on-change
+        {%- if form %} form="{{ form }}"{% endif %}>
+  <option value=""{{ ' selected' if not current }}>&mdash; no position &mdash;</option>
+  {%- for group, positions in wheel_position_groups %}
+  <optgroup label="{{ group }}">
+    {%- for value, label in positions %}
+    <option value="{{ value }}"{{ ' selected' if current == value }}>{{ value }} &middot; {{ label }}{{ ' (taken)' if value in taken and value != current }}</option>
+    {%- endfor %}
+  </optgroup>
+  {%- endfor %}
+  {#- A label set before this was a picker, or through the API, which still
+      accepts free text. Keeping it means opening the page cannot silently
+      offer to erase it. #}
+  {%- if current and current not in canonical %}
+  <optgroup label="Set by hand">
+    <option value="{{ current }}" selected>{{ current }}</option>
+  </optgroup>
+  {%- endif %}
+</select>
+{% endmacro %}

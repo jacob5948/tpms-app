@@ -140,6 +140,7 @@ def create_app(service: Service) -> FastAPI:
     templates.env.filters["bytes"] = human_bytes
     db = service.db
     templates.env.globals["wheel_positions"] = direction_mod.WHEEL_POSITIONS
+    templates.env.globals["wheel_position_groups"] = direction_mod.WHEEL_POSITION_GROUPS
 
     # Settings are read per request, never captured here.
     #

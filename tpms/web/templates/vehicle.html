@@ -54,6 +54,7 @@
    takes a set of sensors; the buttons choose the action with formaction. The
    per-row controls are their own forms, declared below -- HTML forbids
    nesting them here. #}
+{% set taken_wheels = sensors | map(attribute='wheel_label') | select | list %}
 <form method="post" data-selection action="/api/vehicles/{{ vehicle.pk }}/split">
 {# The table and the bar that acts on it are one object, so they sit in one
    panel. The bar used to be a sibling of it, which left it floating between
@@ -85,12 +86,13 @@
            to the cell's text -- which is empty for every row, so the header
            offered an ordering it could not deliver. #}
         <td class="actions" data-sort="{{ s.wheel_label or '' }}">
-          <label class="sr-only" for="wheel-{{ s.pk }}">Wheel label for {{ s.display }}</label>
-          <input form="wheel-form-{{ s.pk }}" id="wheel-{{ s.pk }}" type="text"
-                 name="wheel_label" value="{{ s.wheel_label or '' }}"
-                 list="wheel-names" placeholder="e.g. FL" size="8">
+          {{ m.wheel_picker(s, form='wheel-form-' ~ s.pk, taken=taken_wheels) }}
+          {# The picker saves itself once script is running, which hides this.
+             Without script it is the only way to submit, so it is rendered
+             either way -- the same fallback the bulk bar uses. #}
           <button class="ghost" form="wheel-form-{{ s.pk }}" type="submit"
-                  aria-label="Save the wheel label for {{ s.display }}">Set</button>
+                  data-fallback-for="wheel-{{ s.pk }}"
+                  aria-label="Save the wheel position for {{ s.display }}">Set</button>
         </td>
         <td class="actions">
           {# Where a sensor goes is a bulk action, taken below. What is left
@@ -171,19 +173,6 @@
   </div>
 </div>
 </form>
-
-{# Offered, not enforced: a wheel label is free text, but four vehicles
-   labelled FL, fl, "front left" and Front-Left are four vocabularies.
-
-   L and R are here because a sensor is often known to be on one side long
-   before anyone works out front from rear -- and the side is the whole of
-   what direction needs. Without them, recording a known side means either
-   guessing FL over RL or losing the fact. #}
-<datalist id="wheel-names">
-  {% for value, label in wheel_positions %}
-  <option value="{{ value }}" label="{{ label }}">
-  {% endfor %}
-</datalist>
 
 {# Declared outside the split form: HTML forbids nesting, so the row controls
    reach them by `form=` instead. #}

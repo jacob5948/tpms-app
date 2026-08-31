@@ -62,15 +62,9 @@
        label pinned the sensor and claimed to have moved it. #}
     <form class="inline" method="post" data-async data-busy="Saving…"
           action="/api/sensors/{{ s.pk }}">
-      <label class="sr-only" for="wheel">Wheel label</label>
-      <input id="wheel" type="text" name="wheel_label" value="{{ s.wheel_label or '' }}"
-             list="wheel-names" placeholder="Wheel, e.g. FL" size="8">
-      <datalist id="wheel-names">
-        {% for value, label in wheel_positions %}
-        <option value="{{ value }}" label="{{ label }}">
-        {% endfor %}
-      </datalist>
-      <button type="submit">Label</button>
+      {{ m.wheel_picker(s) }}
+      {# Rendered either way: script hides it and saves on change instead. #}
+      <button type="submit" data-fallback-for="wheel-{{ s.pk }}">Label</button>
     </form>
     <form class="inline right" method="post" data-busy="Moving…"
           action="/api/sensors/{{ s.pk }}">
