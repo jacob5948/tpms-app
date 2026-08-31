@@ -847,12 +847,16 @@ def activity(
     around, and passes -- sightings that began in the bucket -- say how much
     traffic actually drove by, which is the one that shows a rush hour.
     """
-    span = db.query("SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM readings")[0]
+    span = db.query("SELECT MIN(ts) AS lo FROM readings")[0]
     if span["lo"] is None:
         return {"start": None, "end": None, "width": 0, "points": []}
 
     start = float(span["lo"]) if start is None else max(float(start), 0.0)
-    end = float(span["hi"]) if end is None else float(end)
+    # Now, not the last reading. Ending the axis at the newest row draws a
+    # receiver that died an hour ago exactly like one still hearing traffic --
+    # the empty buckets since are the reading, and this chart exists to make a
+    # gap in the capture visible. A caller that asked for a fixed end gets it.
+    end = now_ts() if end is None else float(end)
     if end <= start:
         end = start + 1.0
     buckets = max(2, min(int(buckets), 500))

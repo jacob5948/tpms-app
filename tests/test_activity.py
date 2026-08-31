@@ -99,3 +99,20 @@ def test_chart_endpoints_answer(tmp_path):
     assert api.get("/api/vehicles/1/history").json()["series"]
     assert api.get("/api/sensors/99999/history").status_code == 404
     assert api.get("/api/vehicles/99999/history").status_code == 404
+
+
+def test_the_window_runs_to_now_not_to_the_last_reading(busy, monkeypatch):
+    """A receiver that stopped an hour ago must not draw like one still
+    hearing traffic. The empty buckets since the last reading are the whole
+    of what "it went quiet" looks like on this chart."""
+    monkeypatch.setattr(q, "now_ts", lambda: 9000.0)
+    report = q.activity(busy, buckets=10)
+
+    assert report["end"] == 9000.0
+    assert report["points"][-1]["ts"] > 5100, "the axis stopped at the last row"
+    assert report["points"][-1]["readings"] == 0, "the quiet is not drawn"
+
+
+def test_a_caller_that_names_an_end_still_gets_it(busy):
+    """Only the open-ended window runs to now; a fixed one is honoured."""
+    assert q.activity(busy, start=1000, end=5000, buckets=4)["end"] == 5000
