@@ -540,6 +540,8 @@ def heard_at(db: Database, ts: float, tolerance: float = 30.0) -> dict[str, Any]
     edge handles camera-to-receiver clock skew.
     """
     names = {v.pk: v.display for v in db.list_vehicles()}
+    residents = resident_pks(db)
+
     rows = db.query(
         """
         SELECT s.pk, s.started_at, s.last_reading_at, s.ended_at, s.reading_count,
@@ -556,6 +558,7 @@ def heard_at(db: Database, ts: float, tolerance: float = 30.0) -> dict[str, Any]
         """,
         (ts, ts - tolerance),
     )
+    rows = [r for r in rows if int(r["sensor_pk"]) not in residents]
 
     marks = db.pass_marks()
 
