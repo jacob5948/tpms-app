@@ -60,6 +60,26 @@ def test_the_span_guard_stops_a_brand_new_sensor_qualifying(ingestor, db):
     assert Clusterer(db, config).residents() == set()
 
 
+def test_sensor_present_across_receiver_gaps_is_resident(ingestor, db):
+    """A sensor heard during every session qualifies even when the receiver
+    was off for hours between sessions."""
+    base = 1_000_000
+    session_len = 4 * HOUR
+    gap_between = 16 * HOUR
+    for day in range(3):
+        start = base + day * (session_len + gap_between)
+        for k in range(int(session_len / 100)):
+            ingestor.ingest(
+                Reading(model="PMV-107J", sensor_id="parked01",
+                        ts=start + k * 100, rssi=-12.0,
+                        freq_mhz=315.01, pressure_kpa=208.0)
+            )
+    sensors = db.list_sensors()
+    assert len(sensors) == 1
+    pk = sensors[0].pk
+    assert pk in Clusterer(db).residents()
+
+
 def test_a_resident_does_not_seed_a_single_pass_grouping(ingestor, db):
     """The failure this exists to prevent.
 

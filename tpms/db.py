@@ -705,30 +705,46 @@ class Database:
             finally:
                 conn.isolation_level = ""
 
-    def duty_cycles(self) -> dict[int, tuple[float, float]]:
-        """Per sensor: (share of its observed window it was audible, that window).
+    def duty_cycles(self, gap_cap: float = 600.0) -> dict[int, tuple[float, float]]:
+        """Per sensor: (fraction of effective observation time it was audible, raw span).
 
-        A car driving past is audible for a minute or two out of however long
-        it has been on record, so it scores near zero. A sensor parked in range
-        scores near one. That difference is what separates passing traffic from
-        the transmitters that live here.
+        Gaps between consecutive sightings longer than ``gap_cap`` seconds are
+        truncated to ``gap_cap`` when building the denominator.  Without this,
+        receiver downtime (overnight, restarts) inflates the window and makes
+        a sensor that is present during every minute of uptime look sparse.
         """
         rows = self.query(
             """
-            SELECT s.pk,
-                   s.last_seen - s.first_seen AS span,
-                   (SELECT COALESCE(SUM(g.last_reading_at - g.started_at), 0)
-                      FROM sightings g WHERE g.sensor_pk = s.pk) AS audible
-              FROM sensors s
-            """
+            WITH gaps AS (
+                SELECT sensor_pk,
+                       last_reading_at - started_at AS duration,
+                       started_at - LAG(last_reading_at)
+                           OVER (PARTITION BY sensor_pk
+                                 ORDER BY started_at) AS gap
+                  FROM sightings
+            )
+            SELECT g.sensor_pk                                       AS pk,
+                   s.last_seen - s.first_seen                        AS span,
+                   COALESCE(SUM(g.duration), 0)                      AS audible,
+                   COALESCE(SUM(g.duration), 0)
+                     + COALESCE(SUM(CASE WHEN g.gap IS NOT NULL
+                                         THEN MIN(g.gap, ?)
+                                         ELSE 0 END), 0)            AS effective
+              FROM gaps g
+              JOIN sensors s ON s.pk = g.sensor_pk
+             GROUP BY g.sensor_pk
+            """,
+            (gap_cap,),
         )
         out: dict[int, tuple[float, float]] = {}
         for row in rows:
             span = float(row["span"] or 0.0)
             audible = float(row["audible"] or 0.0)
-            # A sensor heard once has no window to divide by; it is not
-            # resident, it is simply new.
-            out[int(row["pk"])] = ((audible / span) if span > 0 else 0.0, span)
+            effective = float(row["effective"] or 0.0)
+            out[int(row["pk"])] = (
+                (audible / effective) if effective > 0 else 0.0,
+                span,
+            )
         return out
 
     def sighting_counts(self) -> dict[int, int]:
