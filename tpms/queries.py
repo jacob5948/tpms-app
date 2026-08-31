@@ -557,12 +557,15 @@ def heard_at(db: Database, ts: float, tolerance: float = 30.0) -> dict[str, Any]
         (ts, ts - tolerance),
     )
 
+    marks = db.pass_marks()
+
     sensors: list[dict[str, Any]] = []
     for r in rows:
         latest = db.latest_reading(int(r["sensor_pk"]))
         pressure = latest["pressure_kpa"] if latest else None
         sensors.append(
             {
+                "sighting_pk": int(r["pk"]),
                 "sensor_pk": int(r["sensor_pk"]),
                 "display": f"{r['model']}/{r['sensor_id']}",
                 "wheel_label": r["wheel_label"],
@@ -617,6 +620,9 @@ def heard_at(db: Database, ts: float, tolerance: float = 30.0) -> dict[str, Any]
         group["wheels_known"] = known.get(group["vehicle_id"])
         group["started_at"] = min(s["started_at"] for s in group["sensors"])
         group["last_reading_at"] = max(s["last_reading_at"] for s in group["sensors"])
+        anchor = min(s["sighting_pk"] for s in group["sensors"])
+        group["anchor"] = anchor
+        group["confirmed"] = marks.get(anchor)
         out.append(group)
     out.sort(key=lambda g: g["last_reading_at"], reverse=True)
     loose.sort(key=lambda r: r["last_reading_at"], reverse=True)

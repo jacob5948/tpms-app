@@ -55,12 +55,11 @@
     </form>
     {% endif %}
   </div>
-  {%- set taken = g.sensors | map(attribute='wheel_label') | select | list %}
   <div class="scroll"><table>
     <thead><tr>
       <th>Sensor</th><th>Band</th>
       <th class="num">psi</th><th class="num">&deg;C</th><th>Battery</th><th class="num">RSSI</th>
-      <th>First heard</th><th class="num">Readings</th><th>Wheel</th>
+      <th>First heard</th><th class="num">Readings</th>
     </tr></thead>
     <tbody>
       {% for h in g.sensors %}
@@ -70,16 +69,14 @@
         {{ m.reading_cells(h) }}
         {{ m.when(h.started_at) }}
         <td class="num">{{ h.reading_count }}</td>
-        <td>
-          <form id="wheel-form-{{ h.sensor_pk }}" method="post" data-async
-                action="/api/sensors/{{ h.sensor_pk }}">
-            {{ m.wheel_picker(h, taken=taken) }}
-          </form>
-        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table></div>
+  <div class="row" style="margin-top:8px">
+    <span class="muted">Which side faced the receiver?</span>
+    {{ m.confirm_cell(g) }}
+  </div>
 </div>
 {% endfor %}
 
