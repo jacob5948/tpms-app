@@ -3,14 +3,12 @@
 {% block title %}Settings &middot; TPMS{% endblock %}
 {% block body %}
 {#
-  One form over the whole file. Every box posts together and the handler
-  parses all of them before assigning any, so a config that would not load is
-  turned down whole rather than half-written -- the running program and the
-  file on disk are never left saying different things.
+  One form over the whole file. Every box posts together and the handler parses
+  all of them before assigning any, so a config that would not load is refused
+  whole rather than half-written.
 
-  The fields are generated from the config dataclasses, not listed here. A key
-  added to the config appears on this page without anyone remembering to add
-  it, and cannot be quietly missing from it either.
+  The fields are generated from the config dataclasses, so a key added to the
+  config appears here automatically and cannot be missing.
 #}
 <div class="page-head">
   <div>
@@ -20,9 +18,9 @@
       {%- if untracked %} This file does not exist yet; saving creates it.{% endif %}
     </p>
   </div>
-  {# Two scopes, named for what each one costs. The receiver is the cheap
-     one and covers the radio section; the service is the whole program, and
-     is the only thing that re-reads the settings a new process reads. #}
+  {# Two scopes. Restarting the receiver covers the radio section; restarting
+     the service covers the whole program, and is the only one that re-reads
+     the settings only a new process reads. #}
   <div class="row">
     <form class="inline" method="post" data-busy="Restarting…"
           action="/api/radio/restart">

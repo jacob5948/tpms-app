@@ -34,10 +34,8 @@
 </header>
 <main>
 {% if restart_pending %}
-{# Saved, written to the file, and not in force until the program starts
-   again. Sitewide because the setting is saved sitewide, and it carries the
-   restart itself: a banner that states a problem and leaves you to find the
-   button is half a banner. #}
+{# The setting is saved to the file but not in force until the program
+   restarts. Shown on every page, and carrying the restart button itself. #}
 <div class="note restart">
   <strong>Restart needed.</strong>
   {{ restart_pending | join(', ') }}

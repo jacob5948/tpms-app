@@ -117,25 +117,19 @@
 {% endmacro %}
 
 {#
-  A pass's direction, or nothing at all.
-
-  Rendered here because the log and the vehicle page both show it and must
-  show it identically. A guess the radio is not sure of is marked, and the
-  basis is always one hover away -- an inference the reader cannot audit is
-  worse than no inference, because it looks like a measurement.
+  A pass's direction, or nothing at all. Shared, so the log and the vehicle
+  page show it identically. A guess the radio is unsure of is marked, and the
+  reasoning is in the tooltip.
 #}
 {#
-  What was confirmed by eye, and the control that confirms it.
+  What the user confirmed for a pass, and the control that sets it.
 
-  A separate column from Direction on purpose: one is a guess from radio and
-  the other is a fact from a camera, and a single cell showing whichever it has
-  would quietly turn one into the other. Side by side, the pair also reads as
-  the score -- how often the guess matched -- which is what the panel under the
-  table adds up.
+  Kept in its own column rather than merged into Direction: one is an
+  inference and the other a confirmation, and side by side the pair shows how
+  often the inference was right.
 
-  A picker, not two buttons: it is the same shape as the wheel control, it
-  states the two answers rather than making the reader guess what a button
-  does, and it can be un-set, which two buttons could not.
+  A picker rather than two buttons, so it matches the wheel control, names both
+  answers, and can be cleared.
 #}
 {% macro confirm_cell(p) %}
 {%- set field = 'mark-' ~ p.anchor -%}
@@ -163,9 +157,8 @@
 {% macro heading_cell(heading, confirmed=None) %}
 <td data-sort="{{ heading.side if heading else '' }}">
   {%- if heading -%}
-  {#- A guess that has since been checked is marked as right or wrong, not
-      hidden: the column is only worth reading on the passes nobody confirmed,
-      and how far to trust it there is exactly what these agreements say. -#}
+  {#- A confirmed pass marks its guess right or wrong rather than hiding it:
+      the agreements are what say how far to trust the unconfirmed rows. -#}
   {%- set verdict = none if not confirmed else (heading.side == confirmed) -%}
   <span class="pill heading{{ ' tentative' if not heading.firm }}
                {{- ' matched' if verdict }}{{ ' missed' if verdict is false }}"
@@ -181,8 +174,7 @@
 
 {#
   The wheels heard on one pass, out of the wheels the vehicle is known to
-  carry. A car that usually shows four and showed one is the interesting row,
-  and the fraction is what says so.
+  carry: a car that usually shows four and showed one is worth noticing.
 #}
 {% macro wheels_cell(heard, known) %}
 <td class="num" data-sort="{{ heard }}"
@@ -192,20 +184,16 @@
 {% endmacro %}
 
 {#
-  The button that reveals the sightings behind a pass, and the row they live
-  in. Shared, because the log and a vehicle's own history show the same pass
-  and must show the same evidence for it -- and because the sub-row's colspan
-  has to match the table it is nested in, which is easiest to get right when
-  the caller states it once next to its own header.
+  The button that reveals the sightings behind a pass, and the row holding
+  them. Shared by the log and the vehicle page. The colspan is passed in
+  because it has to match whichever table the row is nested in.
 
-  The rows are rendered, not fetched: with JS off they are simply visible,
-  which is the correct fallback for "the evidence behind this row".
+  The rows are rendered, not fetched, so with JS off they are simply visible.
 #}
 {% macro expand_button(row_id, count) %}
 {% if count %}
-{# A caret and a border, not an underlined count. As a bare number-and-word it
-   read as a value in a column of values -- the thing it looks most like is
-   the "Readings" cell two along -- and nothing said the row would open. #}
+{# A caret and a border, not an underlined count: as a bare number and word
+   it read as another value in a column of values. #}
 <button type="button" class="expander" data-expand="{{ row_id }}"
         aria-expanded="false" aria-controls="{{ row_id }}"
         title="Show the sightings behind this pass">
@@ -216,9 +204,8 @@
 {% endmacro %}
 
 {% macro sightings_rows(sightings, row_id, colspan) %}
-{# Down to one: a pass heard on a single wheel is the one where "which wheel,
-   how loud, on what band" is least obvious from the row above, and it was the
-   one row that could not be opened. #}
+{# One or more, not two: a pass heard on a single wheel is where the wheel,
+   level and band are least visible from the row above. #}
 {% if sightings %}
 <tr class="sub-rows" id="{{ row_id }}" data-nosort>
   <td colspan="{{ colspan }}">

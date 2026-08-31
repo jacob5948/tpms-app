@@ -10,10 +10,9 @@
  * a retry), a table view of the same numbers, and canvas colours sampled from
  * the page so the charts follow the light/dark theme.
  *
- * There is deliberately no second y axis. Two measures on two scales in one
- * plot invent a correlation out of where the scales happen to line up; two
- * plots sharing an x window (see tpmsRangeBar and opts.sync) say the same
- * thing without the lie.
+ * There is no second y axis: two measures on two scales in one plot suggest a
+ * correlation that is really just where the scales line up. Two plots sharing
+ * an x window (see tpmsRangeBar and opts.sync) show the same data instead.
  */
 
 /* Ordered so that neighbouring slots stay apart for colour-blind readers:

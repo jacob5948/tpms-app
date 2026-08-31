@@ -50,15 +50,13 @@
 
 <h2>Sensors</h2>
 
-{# One form around the table, so the same tick does for every action that
-   takes a set of sensors; the buttons choose the action with formaction. The
-   per-row controls are their own forms, declared below -- HTML forbids
-   nesting them here. #}
+{# One form around the table, so one tick serves every action that takes a
+   set of sensors; the buttons choose the action with formaction. The per-row
+   controls are separate forms, declared below, since HTML forbids nesting. #}
 {% set taken_wheels = sensors | map(attribute='wheel_label') | select | list %}
 <form method="post" data-selection action="/api/vehicles/{{ vehicle.pk }}/split">
-{# The table and the bar that acts on it are one object, so they sit in one
-   panel. The bar used to be a sibling of it, which left it floating between
-   two bordered boxes belonging to neither. #}
+{# The table and the bar that acts on it sit in one panel. The bar used to be
+   a sibling, leaving it floating between two bordered boxes. #}
 <div class="panel">
   <div class="scroll">
   <table class="has-select">
@@ -116,11 +114,9 @@
   </div>
   {# Every action that takes a set of sensors, in one bar under the set.
 
-     Hidden by script until the first tick, and present in the HTML so the
-     page still works without JS -- the same fallback the log uses for the
-     sightings behind a pass. The checkbox column already says the rows can
-     be ticked; a bar that appears on the first one, wearing the same accent
-     as the rows it will act on, says what it acts on without a sentence. #}
+     Hidden by script until the first tick, and present in the HTML so the page
+     works without JS. It wears the same accent as the ticked rows, which is
+     how it shows what it will act on. #}
   <div class="row bulk" data-tick-bar>
     <span class="tick-count" data-tick-count aria-live="polite"></span>
     {% if sensors | length > 1 %}
@@ -158,8 +154,8 @@
       Move
     </button>
     {% else %}
-    {# Nothing to move them to, so the picker would promise destinations that
-       do not exist. One verb is the whole of what can be done. #}
+    {# No other vehicles, so a destination picker would list nothing.
+       Unassigning is the only available action. #}
     <input type="hidden" name="target" value="none">
     <button type="submit" data-busy="Moving…"
             data-needs="input[name=sensor]:checked"
@@ -177,10 +173,9 @@
 {# Declared outside the split form: HTML forbids nesting, so the row controls
    reach them by `form=` instead. #}
 {% for s in sensors %}
-{# Not data-async: a wheel label rewrites the badge beside the sensor, every
-   direction cell in the pass table and the sides panel. Saving it in place
-   left the page contradicting itself -- a picker reading R above a row of
-   pills computed while it still said L. #}
+{# Not data-async: a wheel label changes the badge beside the sensor, every
+   direction cell in the pass table and the sides panel, so the page has to be
+   re-rendered rather than patched. #}
 <form id="wheel-form-{{ s.pk }}" method="post" data-busy="Saving…"
       action="/api/sensors/{{ s.pk }}" hidden></form>
 <form id="pin-form-{{ s.pk }}" method="post" data-busy="Saving…"
@@ -208,9 +203,8 @@
 </div>
 {% endif %}
 
-{# One section, not two: the plots and the table are the same passes, and
-   splitting them across the page left the charts under a name of their own
-   ("comings and goings") that appeared nowhere else in the program. #}
+{# One section: the plots and the table show the same passes. They used to be
+   split, with the charts under a name used nowhere else. #}
 <div class="head-row">
   <h2>Passes</h2>
   {{ m.log_link(vehicle_id=vehicle.pk, text='Open in the log') }}
@@ -223,10 +217,8 @@
 <div class="panel">
   {% if passes %}
   <div class="scroll"><table>
-    {# The log's pass row, minus the column that names the vehicle -- the page
-       is the vehicle. Direction sits beside the wheel count it is read from:
-       the two are one fact, and a reader who doubts the heading looks
-       straight at how many wheels were heard. #}
+    {# The log's pass row, minus the Vehicle column. Direction sits beside the
+       wheel count it is inferred from. #}
     <thead><tr>
       <th>First heard</th><th>Last heard</th><th class="num">Duration</th>
       <th>Direction</th><th>Seen</th><th class="num">Wheels</th><th class="num">Readings</th>
@@ -259,9 +251,8 @@
   {% endif %}
 </div>
 
-{# Directly under the passes it is counting: the argument for a side is the
-   rows above, and a panel of conclusions parked away from its evidence is one
-   nobody can check. #}
+{# Directly under the passes it counts, so the evidence for each proposal is
+   on the same screen. #}
 {% include "_sides.html" %}
 
 <h2>Pressure history</h2>

@@ -2,13 +2,11 @@
 {#
   What the confirmed passes say about which side each wheel is on.
 
-  A fragment, not a block: marking a pass changes every number in here, and
-  this is what the page re-fetches when one is marked, so the panel can never
-  be showing arithmetic from before the last confirmation.
+  A fragment rather than a block: marking a pass changes every number here, and
+  the page re-fetches this after each confirmation.
 
-  It shows its working. The proposal is one button, but the counts beside it
-  are the whole argument for it, and a reader who disagrees can go straight to
-  the pass table above and see the passes being counted.
+  The counts beside each proposal are the evidence for it, and they refer to
+  the pass table directly above.
 #}
 {% set names = direction_names() %}
 {% set changes = sides | selectattr('changes') | list %}
@@ -40,8 +38,8 @@
         <td>{{ m.sensor_link(e.sensor_pk, e.display, e.wheel_label) }}</td>
         <td>{{ e.wheel_label or '—' }}</td>
         <td>
-          {#- Amber means "this contradicts what is there", which an unlabelled
-              wheel cannot do: proposing a side for one is not a disagreement. -#}
+          {#- Amber marks a contradiction with an existing label, so an
+              unlabelled wheel never gets it. -#}
           {%- if e.side -%}
           <span class="pill heading{{ ' matched' if e.agrees }}{{ ' missed' if e.changes and e.wheel_label }}">
             {{- 'L' if e.side == 'left' else 'R' }} &middot; {{ e.side -}}
@@ -55,8 +53,8 @@
             {{ '%+.1f' % (e.levels.left - e.levels.right) }} dB
           {%- else -%}<span class="muted">—</span>{%- endif -%}
         </td>
-        {# The counts and the gap to their left are the working; the sentence
-           only says something they do not when there is no call to explain. #}
+        {# The counts and the gap are the reasoning; the sentence adds
+           something only when there is no call to explain. #}
         <td class="sub">{{ e.basis if not e.side }}</td>
       </tr>
       {% endfor %}

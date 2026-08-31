@@ -1,20 +1,17 @@
-/* Keep the sides panel honest while passes are being confirmed.
+/* Refresh the sides panel as passes are confirmed.
  *
- * Confirming a pass saves in place -- reviewing a week of traffic against
- * camera footage is dozens of these, and a full reload each time would put the
- * page back at the top every time. But every number in the sides panel is
- * computed from exactly those confirmations, so leaving it as it was would be
- * the stale-page bug in a new place. Instead the panel is re-fetched from the
- * server, which keeps one description of what the confirmations add up to.
+ * Confirming saves in place, because reviewing a week of traffic is dozens of
+ * these and a reload each time would scroll the page back to the top. Every
+ * number in the sides panel comes from those confirmations, so the panel is
+ * re-fetched from the server rather than left stale or rebuilt here.
  */
 (function () {
   if (!document.getElementById('sides-panel')) return;   // the log has none
 
   async function refresh() {
     // Looked up per refresh, never held: this replaces the panel, so a
-    // reference kept from page load points at a detached node from the second
-    // confirmation onwards -- and every refresh after the first is silently
-    // written to a copy of the panel that nobody can see.
+    // reference kept from page load would be detached after the first
+    // refresh, and later updates would go to a node not in the document.
     const panel = document.getElementById('sides-panel');
     if (!panel || !panel.dataset.vehicle) return;
     try {
@@ -25,8 +22,8 @@
       const fresh = parsed.getElementById('sides-panel');
       if (fresh) panel.replaceWith(fresh);
     } catch (e) {
-      /* The panel is a summary of rows still on screen; a failed refresh is
-       * not worth an error over, and the next confirmation tries again. */
+      /* A failed refresh leaves the previous summary in place; the next
+       * confirmation tries again. */
     }
   }
 

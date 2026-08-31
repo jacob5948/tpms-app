@@ -3,7 +3,7 @@
  * Works on the rendered rows rather than round-tripping to the server: it
  * keeps the click-to-sort order intact, responds instantly, and at the scale
  * this runs at (hundreds of sensors, not millions) there is nothing to gain
- * from paging. Hidden rows stay in the DOM, so sort.js reorders them happily
+ * from paging. Hidden rows stay in the DOM, so sort.js still reorders them
  * and they reappear in the right place when the filter clears.
  *
  * "Rows" are table rows by default, or any [data-filter-row] element, so the

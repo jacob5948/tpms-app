@@ -1,9 +1,9 @@
 """Correlate sensor IDs into vehicles by co-occurrence.
 
 Four sensors bolted to the same car are heard within seconds of each other,
-over and over, across independent passes. Two unrelated cars that happen to
-drive past together share that property once or twice but not persistently --
-which is exactly what the support threshold below tests for.
+over and over, across independent passes. Two unrelated cars that drive past
+together share that property once or twice but not persistently, which is what
+the support threshold below tests for.
 
 Manual territory is never overwritten: a sensor is left alone if it is pinned,
 or if it belongs to a vehicle a human created or renamed.
@@ -67,13 +67,13 @@ class ClusterReport:
     sensors_assigned: int = 0
     sensors_unassigned: int = 0
     oversized: list[list[int]] = field(default_factory=list)
-    #: Clusters whose members come from several unrelated id families -- a
-    #: shape that usually means two cars that drove past together.
+    #: Clusters whose members come from several unrelated id families, which
+    #: usually means two cars that drove past together.
     mixed_families: list[list[int]] = field(default_factory=list)
     skipped_manual: list[int] = field(default_factory=list)
     skipped_aliases: list[int] = field(default_factory=list)
-    #: Sensors hidden by hand. Kept out of clustering entirely, so a known
-    #: irrelevance cannot pull a real vehicle into its cluster.
+    #: Sensors hidden by hand. Kept out of clustering entirely, so they
+    #: cannot pull a real vehicle into their cluster.
     skipped_ignored: list[int] = field(default_factory=list)
     provisional: list[list[int]] = field(default_factory=list)
 
@@ -83,7 +83,7 @@ class ClusterReport:
         This was once every counter in the report, printed whether or not it
         moved, which came out as a ten-clause comma run where "0 oversized, 0
         mixed id families" crowded out the three numbers anyone reads. A count
-        that stayed at zero is not news.
+        that stayed at zero is not worth printing.
         """
         parts = [f"{len(self.components)} cluster(s)"]
         for count, label in (
@@ -115,10 +115,10 @@ class Clusterer:
     def build_edges(self, eligible: set[int] | None = None) -> list[Edge]:
         """Co-occurrence pairs strong enough to imply a shared vehicle."""
         counts = self.db.sighting_counts()
-        # Built whether or not single-pass grouping is on, because a resident's
-        # edges are now judged on shape too. These were once built only for the
-        # single-pass branch, which is how the resident guard came to cover
-        # half the cases it was written for.
+        # Built whether or not single-pass grouping is on, since resident
+        # edges are judged on shape too. These were once built only for the
+        # single-pass branch, which left the resident guard covering half the
+        # cases it was written for.
         profiles = self._profiles()
         residents = self.residents()
         edges: list[Edge] = []
@@ -136,23 +136,22 @@ class Clusterer:
             denominator = min(counts.get(a, 0), counts.get(b, 0))
             support = min(count / denominator, 1.0) if denominator else 0.0
 
-            # A sensor parked in range is audible while every passing car goes
-            # by, so being heard together says nothing about them travelling
-            # together -- and that does not improve with repetition. It gets
-            # *worse*: the pair is counted once per shared sighting, so a
-            # resident scores one vote per passing car and support divides by
-            # the passer's own handful of sightings. Three cars in an afternoon
-            # is n=3 at support 1.00, which is a confirmed edge.
+            # A sensor parked in range is audible while every car goes by, so
+            # being heard with one says nothing about travelling with it, and
+            # repetition makes it worse rather than better: the pair is counted
+            # once per shared sighting, so a resident gets one vote per passing
+            # car while support divides by that car's own few sightings. Three
+            # cars in an afternoon is n=3 at support 1.00.
             #
             # This guard used to sit in the single-pass branch alone, so a
-            # resident could not *seed* a one-pass grouping but could confirm
-            # its way into anything. On a real capture that produced one
-            # component of 223 sensors across six decoders, held together by
-            # twelve parked transmitters.
+            # resident could not seed a one-pass grouping but could confirm its
+            # way into anything. On a real capture that gave one component of
+            # 223 sensors across six decoders, held together by twelve parked
+            # transmitters.
             #
-            # Shape, not a blanket ban: a parked car's own wheels are residents
-            # too, and co-occurrence is the only evidence they will ever offer.
-            # A shared decoder and a neighbouring id still groups those; a Ford,
+            # A shape test rather than a ban: a parked car's own wheels are
+            # residents too, and co-occurrence is the only evidence they offer.
+            # A shared decoder and a neighbouring id still group those; a Ford,
             # a Toyota and a Denso heard together all afternoon do not.
             if (a in residents or b in residents) and not self._same_vehicle_shape(
                 a, b, profiles
@@ -163,19 +162,17 @@ class Clusterer:
                 edges.append(Edge(a=a, b=b, count=count, support=support))
             elif (
                 self.config.single_pass
-                # The rule is for sensors that have never had the chance to
-                # confirm -- a car heard once, where the alternative is not
-                # grouping it at all. It was applying to every pair, including
-                # one whose sensors have been heard dozens of times each: a
-                # pair that has had the chance to confirm and did not is
-                # evidence of absence, and falling back to a weaker test is
-                # reading it as the opposite.
+                # This rule is for sensors that have never had the chance to
+                # confirm: a car heard once, where the alternative is not
+                # grouping it at all. It used to apply to every pair, including
+                # ones whose sensors had been heard dozens of times each --
+                # where the failure to co-occur is evidence against the pair,
+                # not a reason to fall back to a weaker test.
                 #
                 # `denominator` is the rarer sensor's sightings, so a wheel
-                # heard once beside a wheel heard fifty times still groups --
-                # the weak wheel is exactly the case this protects. Both have
-                # to have had a fair run before their silence counts against
-                # them.
+                # heard once beside a wheel heard fifty times still groups.
+                # Both have to have had a fair run before silence counts
+                # against them.
                 and denominator < self.config.min_cooccurrences
                 # One shared window is not enough for a resident even when the
                 # shape matches: it is audible during every window there is.
@@ -213,9 +210,8 @@ class Clusterer:
         if self._ids is None:
             sensors = self.db.list_sensors() if self.config.id_adjacency else []
             self._ids = idfamily._parsed(sensors)
-            # Per decoder, because one distance across ID spaces of different
-            # widths is a different question wearing the same clothes. See
-            # idfamily.thresholds.
+            # Per decoder: the same distance means different things in ID
+            # spaces of different widths. See idfamily.thresholds.
             self._id_limits = idfamily.thresholds(
                 self._ids,
                 self.config.id_max_distance,
@@ -339,8 +335,8 @@ class Clusterer:
         report = ClusterReport()
         for pk, sensor in sensors.items():
             if sensor.alias_of is not None:
-                # The same transmitter under another decoder's name. Including
-                # it would invent a vehicle out of one physical sensor.
+                # The same transmitter under another decoder's name;
+                # including it would make a vehicle out of one sensor.
                 report.skipped_aliases.append(pk)
             elif sensor.ignored:
                 # Hidden on purpose. It is still heard, and a resident one is
@@ -416,11 +412,10 @@ class Clusterer:
         """Drop "provisional" from the vehicles clustering no longer owns.
 
         The flag means "grouped from a single pass, and not seen together
-        since". It is only ever rewritten for the vehicles this run
-        reconciles, so one that passed into a person's hands kept whatever it
-        had at that moment -- for good. Naming a vehicle, the act that most
-        says "this grouping is mine, not a guess", is exactly what took it out
-        of reach of the only code that could have cleared the flag.
+        since". It is only rewritten for the vehicles a run reconciles, so a
+        vehicle taken into manual ownership kept whatever value it had at that
+        moment: naming a vehicle put it out of reach of the only code that
+        could clear the flag.
         """
         held = set(manual)
         members: dict[int, list[int]] = {}

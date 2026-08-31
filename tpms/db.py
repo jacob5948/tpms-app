@@ -107,12 +107,10 @@ CREATE TABLE IF NOT EXISTS cooccurrence (
     PRIMARY KEY (a, b)
 );
 
--- What was actually seen go past, as opposed to what the radio guessed. One
--- row per pass the user confirmed, anchored on the first sighting in it: a
--- pass is derived at read time from whatever the join gap is now, so there is
--- no pass row to point at, and a sighting is the most stable thing there is.
--- `side` is which side of the vehicle faced the receiver -- the same fact
--- direction.infer guesses, and named the same way on the page.
+-- One row per pass the user confirmed by eye, holding which side of the
+-- vehicle faced the receiver. Anchored on the first sighting of the pass:
+-- passes are derived at read time from the current join gap, so there is no
+-- pass row to reference, while a sighting is stable.
 CREATE TABLE IF NOT EXISTS pass_marks (
     sighting_pk INTEGER PRIMARY KEY REFERENCES sightings(pk) ON DELETE CASCADE,
     side        TEXT NOT NULL,
@@ -527,9 +525,8 @@ class Database:
     def mark_pass(self, sighting_pk: int, side: str | None, when: float) -> None:
         """Record which side of a vehicle actually faced the receiver.
 
-        ``side`` of None clears the mark: a confirmation entered by mistake has
-        to be removable, or the record the inference trusts most is the one
-        thing on the page that cannot be corrected.
+        ``side`` of None clears the mark, so a confirmation entered by mistake
+        can be removed.
         """
         with self.write_lock, self.connect() as conn:
             if side is None:
@@ -545,9 +542,8 @@ class Database:
     def pass_marks(self) -> dict[int, str]:
         """Every confirmation, by the sighting it is anchored on.
 
-        All of them, in one query: a page shows a hundred passes at most, and
-        the alternative is a lookup per row against a table with one row per
-        pass anyone has ever confirmed.
+        Read in one query rather than per row: the table holds one row per
+        confirmed pass, which is small.
         """
         return {
             int(r["sighting_pk"]): r["side"]

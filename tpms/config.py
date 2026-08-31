@@ -397,7 +397,7 @@ SECTION_HELP: dict[str, str] = {
 }
 
 #: Why each individual setting exists, by dotted path. Anything absent here
-#: renders bare, which is the honest signal that it explains itself.
+#: renders without help text.
 FIELD_HELP: dict[str, str] = {
     "database": "SQLite file. Relative paths resolve beside this config file.",
     "timezone": (
@@ -521,20 +521,18 @@ FIELD_HELP: dict[str, str] = {
 #: represented as YAML, so leaking one turns every save into a 500.
 NOT_SETTINGS: frozenset[str] = frozenset({"base_dir", "source_path"})
 
-#: Settings the running process cannot adopt without being restarted.
-#: `database` is the whole of it: every component was handed a connection to
-#: the old file at startup, so changing this changes where the *next* run
-#: looks and nothing about this one. Shown, never editable -- a box that
-#: silently does nothing until a restart is worse than no box.
+#: Settings the running process cannot adopt without being restarted. Only
+#: `database`: every component holds a connection to the file opened at
+#: startup, so changing it affects the next run, not this one. Shown on the
+#: Settings page as text, since an editable box would appear to do nothing.
 READ_ONLY: frozenset[str] = frozenset({"database"})
 
 #: Sections whose values the receiver only reads when it starts.
 NEEDS_RADIO_RESTART: frozenset[str] = frozenset({"radio"})
 
-#: Sections whose values only a new *process* reads. The web server binds its
-#: address once, while uvicorn is starting, and nothing in a running program
-#: can move it -- so a saved port is a promise the page cannot keep until the
-#: service restarts, and the page has to say so and offer the restart.
+#: Sections whose values only a new process reads. The web server binds its
+#: address once, while uvicorn starts, so a saved port has no effect until the
+#: service restarts. The Settings page says so and offers the restart.
 NEEDS_PROCESS_RESTART: frozenset[str] = frozenset({"web"})
 
 

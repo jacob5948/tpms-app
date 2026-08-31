@@ -83,9 +83,9 @@ def merge_intervals(
 def vehicle_intervals(db: Database, vehicle_id: int, join_gap: float, limit: int = 100):
     """When a vehicle was audible, one row per pass, newest first.
 
-    Times and counts only. What each pass *was* -- which wheels, how loudly,
-    which way it was pointing -- is `vehicle_passes`, and the pages that show
-    a pass read it from there rather than growing a second answer here.
+    Times and counts only. What each pass contained -- which wheels, at what
+    level, which direction -- comes from vehicle_passes, which is what the
+    pages that show a pass use.
     """
     rows = db.query(
         """
@@ -116,9 +116,9 @@ def vehicle_presence(
 ) -> dict[str, Any]:
     """When a vehicle was audible, and how often it turned up.
 
-    Two shapes of the same fact, because one chart cannot carry both: the
-    intervals are exact but a 90-second pass is sub-pixel across a month,
-    while the bucket counts stay legible at any zoom and lose the detail.
+    Two shapes of the same data: the intervals are exact but a 90-second pass
+    is sub-pixel across a month, while the bucket counts stay legible at any
+    zoom and lose the detail.
     """
     sql = """
         SELECT s.started_at, s.ended_at, s.reading_count
@@ -129,7 +129,7 @@ def vehicle_presence(
     params: list[Any] = [vehicle_id]
     if start is not None:
         # Overlapping, not contained: an appearance that began before the
-        # window and is still running is exactly what you want to see.
+        # window and is still running should be included.
         sql += " AND (s.ended_at IS NULL OR s.ended_at >= ?)"
         params.append(start)
     if end is not None:
@@ -165,9 +165,9 @@ def vehicle_presence(
     ]
 
     lo = start if start is not None else (intervals[0]["started_at"] if intervals else None)
-    # Ending the axis at the last appearance makes "not seen for three days"
-    # look identical to "seen a minute ago" -- the gap since is the reading,
-    # so the window runs to now unless the caller asked for a fixed end.
+    # The window runs to now unless the caller asked for a fixed end: ending
+    # it at the last appearance would draw "not seen for three days" the same
+    # as "seen a minute ago".
     hi = end if end is not None else (now if intervals else None)
     if lo is None or hi is None or hi <= lo:
         return {"intervals": intervals, "buckets": [], "width": 0, "start": lo, "end": hi}
@@ -532,8 +532,7 @@ def _sighting_filters(
 ) -> tuple[str, list[Any]]:
     """The WHERE shared by the sighting log, the pass log and their counts.
 
-    One definition, so the count under the table can never disagree with the
-    table, and the CSV can never disagree with either.
+    One definition, so the table, the count under it and the CSV agree.
     """
     clauses = []
     params: list[Any] = []
@@ -651,14 +650,12 @@ def vehicle_passes(
 ) -> list[dict[str, Any]]:
     """The traffic log: one row per vehicle going past, newest first.
 
-    ``events`` answers "what did the receiver decode"; this answers "what drove
-    by", which is the question the program exists for. Four wheels rolling
-    past are one pass here and four rows there, and each pass carries the
-    sightings it was built from so the raw evidence is one click away.
+    ``events`` reports what the receiver decoded; this reports what drove by.
+    Four wheels are four rows there and one row here, and each pass carries the
+    sightings behind it so the raw evidence is one click away.
 
-    A sensor with no vehicle still gets a pass of its own -- an unclustered
-    wheel is a thing that drove past, and dropping it would quietly under-count
-    the traffic.
+    A sensor with no vehicle still gets a pass of its own, so unclustered
+    wheels are not left out of the traffic count.
     """
     where, params = _sighting_filters(
         start, end, vehicle_id, sensor_pk, include_ignored
@@ -679,12 +676,12 @@ def vehicle_passes(
         params,
     )
 
-    # What was confirmed by eye, keyed by the sighting each confirmation was
-    # anchored on. Read once for the page rather than per row.
+    # Confirmations, keyed by the sighting each is anchored on. Read once for
+    # the whole page rather than per row.
     marks = db.pass_marks()
 
-    # How many wheels each vehicle is known to have, so a pass can say "3 of 4"
-    # -- a vehicle that usually shows four and showed one is worth noticing.
+    # How many wheels each vehicle is known to have, so a pass can say "3 of
+    # 4": a vehicle that usually shows four and showed one is worth noticing.
     known: dict[int, int] = {
         int(r["vehicle_id"]): int(r["n"])
         for r in db.query(
@@ -716,9 +713,9 @@ def vehicle_passes(
         ):
             members = sorted(run["items"], key=lambda r: float(r["started_at"]))
             # A confirmation is anchored on the first sighting of the pass it
-            # was entered on. Every member is checked, not just that one: the
-            # join gap is a setting, and a pass re-sliced under a new one must
-            # keep the answer someone gave with their own eyes.
+            # was entered on. All members are checked, not just that one: the
+            # join gap is a setting, so a pass re-sliced under a new value must
+            # keep its confirmation.
             anchor = int(members[0]["pk"])
             confirmed = next(
                 (marks[int(r["pk"])] for r in members if int(r["pk"]) in marks), None
@@ -754,17 +751,15 @@ def vehicle_passes(
                     "reading_count": sum(int(r["reading_count"]) for r in members),
                     "wheels_heard": len(wheels),
                     "wheels_known": known.get(ident) if kind == "v" else None,
-                    # Which way it was pointing, from the wheels heard. Read
-                    # from the labels as they are now rather than stored: a
-                    # pass's direction changes the moment someone corrects a
-                    # wheel, and a cached one would be quietly wrong.
+                    # Inferred from the labels as they are now rather than
+                    # stored: correcting a wheel changes a pass's direction,
+                    # and a cached value would be wrong from then on.
                     "heading": direction.infer(
                         [(r["wheel_label"], r["max_rssi"]) for r in members],
                         rssi_margin,
                     ),
-                    # What was actually seen, when someone said so. It is not
-                    # the heading: one is evidence and the other is a guess,
-                    # and folding them together would lose which is which.
+                    # Kept separate from the heading: one is a confirmation,
+                    # the other an inference, and the pages show both.
                     "anchor": anchor,
                     "confirmed": confirmed,
                     "max_rssi": max(rssis) if rssis else None,
@@ -799,10 +794,9 @@ def _thin(rows: list[Any], limit: int) -> list[Any]:
     """Evenly sample a long series down to ``limit`` points.
 
     A week of readings from a resident sensor is tens of thousands of rows,
-    which no 900px-wide chart can show. Taking the newest N instead would be
-    cheaper but would quietly redraw the requested window as a much shorter
-    one, so sample across the whole span and always keep the last point --
-    that is the one the pages label as the latest reading.
+    more than a chart can show. Taking the newest N would silently shorten the
+    requested window, so this samples across the whole span. The last point is
+    always kept, since the pages label it as the latest reading.
     """
     if len(rows) <= limit or limit < 2:
         return rows
@@ -859,20 +853,18 @@ def activity(
 ) -> dict[str, Any]:
     """How busy the receiver has been, bucketed over a window.
 
-    Three quantities, because they answer different questions: readings say
-    how much RF got through, transmitters say how many distinct vehicles were
-    around, and passes -- sightings that began in the bucket -- say how much
-    traffic actually drove by, which is the one that shows a rush hour.
+    Three quantities: readings (how much RF got through), distinct
+    transmitters (how many vehicles were around), and passes (sightings that
+    began in the bucket, which is the one that shows a rush hour).
     """
     span = db.query("SELECT MIN(ts) AS lo FROM readings")[0]
     if span["lo"] is None:
         return {"start": None, "end": None, "width": 0, "points": []}
 
     start = float(span["lo"]) if start is None else max(float(start), 0.0)
-    # Now, not the last reading. Ending the axis at the newest row draws a
-    # receiver that died an hour ago exactly like one still hearing traffic --
-    # the empty buckets since are the reading, and this chart exists to make a
-    # gap in the capture visible. A caller that asked for a fixed end gets it.
+    # Now, not the last reading: ending at MAX(ts) would draw a receiver that
+    # stopped an hour ago the same as one still hearing traffic. The empty
+    # buckets since are the point. A caller that named an end still gets it.
     end = now_ts() if end is None else float(end)
     if end <= start:
         end = start + 1.0
@@ -902,8 +894,8 @@ def activity(
         )
     }
 
-    # Empty buckets are filled in rather than skipped: a gap in the capture is
-    # exactly what this chart exists to make visible.
+    # Empty buckets are filled in rather than skipped, so gaps in the capture
+    # are visible.
     points = []
     for i in range(buckets):
         readings, sensors = counts.get(i, (0, 0))

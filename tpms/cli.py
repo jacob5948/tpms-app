@@ -366,8 +366,8 @@ def cmd_ids(args: argparse.Namespace) -> int:
 
     print(f"comparing IDs within a decoder, up to {max_distance} apart")
     if card.limits:
-        # A threshold that varies invisibly is worse than one that is merely
-        # wrong, so the capped decoders are named and the arithmetic is shown.
+        # The cap varies per decoder, so name the capped ones and show the
+        # arithmetic rather than applying it silently.
         print("  capped tighter where the decoder's ID space is too crowded "
               f"for that (limit {config.clustering.id_coincidence_limit:g} "
               "unrelated neighbour(s) per sensor):")
@@ -418,9 +418,8 @@ def cmd_ids(args: argparse.Namespace) -> int:
             print(f"  {distance:>10}  {recall:>7}  {noise:>9}  "
                   f"{len(other.families):>10}{mark}"
                   + (f"  ({capped} decoder(s) capped tighter)" if capped else ""))
-        # The decisive comparison for the cap itself: the same distance, with
-        # and without it. A default nobody can check is a default nobody
-        # should trust.
+        # The comparison for the cap itself: the same distance with it and
+        # without it, so the default can be checked.
         if config.clustering.id_coincidence_limit:
             flat = replace(config.clustering, id_coincidence_limit=0.0)
             off = idfamily.evaluate(db, flat, max_distance)

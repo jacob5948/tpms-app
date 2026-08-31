@@ -6,15 +6,12 @@ has the car in the way. So the near side is heard more often, and more
 strongly, and *which wheels were heard at all* is the evidence for which side
 faced the receiver.
 
-That is the whole of what the radio can say. A side is not a direction until
-someone says which way traffic on that side is going, and only the person who
-owns the receiver knows that -- so the names come from `direction:` in the
-config and the program never guesses them. With no names configured this
-still reports the side, which is the honest half of the answer.
+A side is not a direction until someone says which way traffic on that side is
+going, so the names come from `direction:` in the config. With no names
+configured this reports the side rather than guessing a direction.
 
-Nothing here is stored. Wheel labels change as a user curates, and a stored
-guess would go stale the moment one did; every pass is inferred at read time
-from the labels as they are now.
+Nothing here is stored: wheel labels change as a user curates them, so every
+pass is inferred at read time from the labels as they are now.
 """
 
 from __future__ import annotations
@@ -22,14 +19,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 #: The wheel positions offered in the UI, grouped as the picker offers them.
-#: `L` and `R` exist because a sensor is often known to be on one side long
-#: before anyone works out whether it is the front or the rear -- and side is
-#: the only part direction needs. Forcing a choice between FL and RL to record
-#: something known would either lose the fact or invent a detail.
-#:
-#: The group headings carry what used to be written into the labels themselves
-#: ("left, front or rear unknown"): a picker states the qualification once, over
-#: the pair it applies to, rather than in every option a reader has to compare.
+#: `L` and `R` exist because the side is often known before the front/rear half
+#: is, and side is all that direction inference needs. The group headings carry
+#: the "front or rear unknown" qualification once, rather than in each option.
 WHEEL_POSITION_GROUPS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
     ("Corner known", (
         ("FL", "front left"),
@@ -55,9 +47,8 @@ WHEEL_POSITIONS: tuple[tuple[str, str], ...] = tuple(
 LEFT = "left"
 RIGHT = "right"
 
-#: Labels that place a wheel on a side. A spare is deliberately absent: it is
-#: a real wheel with a real sensor and no side at all, and letting it vote
-#: would put a car's direction on the one wheel that is not on the road.
+#: Labels that place a wheel on a side. A spare is excluded: it has a sensor
+#: but no side, so it must not contribute to a direction.
 _SIDES: dict[str, str] = {
     "FL": LEFT, "RL": LEFT, "L": LEFT,
     "FR": RIGHT, "RR": RIGHT, "R": RIGHT,
@@ -69,11 +60,9 @@ _OPPOSITE = {LEFT: RIGHT, RIGHT: LEFT}
 def side_of(label: str | None) -> str | None:
     """The side a wheel label names, or None if it names no side.
 
-    Labels are free text -- the picker offers the canonical set and the API
-    still accepts anything -- so this is deliberately forgiving about case and
-    spacing, and silent about anything it does not recognise. An unrecognised
-    label is not an error; it is a wheel whose side is unknown, which is
-    exactly what the caller does with it.
+    Labels are free text: the picker offers the canonical set, but the API
+    accepts anything. So this is forgiving about case and spacing, and returns
+    None for anything unrecognised -- a wheel whose side is unknown.
     """
     if not label:
         return None
@@ -89,10 +78,9 @@ def side_of(label: str | None) -> str | None:
     return spelled.get(key)
 
 
-#: The corner labels, by the side and the end of the car they name. Used to
-#: move a label from one side to the other without losing the half that says
-#: front or rear -- nobody learned that half from the radio, and a proposal
-#: about sides has no business throwing it away.
+#: The corner labels, by the end and the side they name. Used to move a label
+#: to the other side while keeping the front/rear half, which no side inference
+#: has any evidence about.
 _CORNERS: dict[str, tuple[str, str]] = {
     "FL": ("F", LEFT), "FR": ("F", RIGHT),
     "RL": ("R", LEFT), "RR": ("R", RIGHT),
@@ -103,9 +91,8 @@ _CORNER_LABELS = {(end, side): label for label, (end, side) in _CORNERS.items()}
 def side_label(current: str | None, side: str) -> str:
     """The label ``current`` becomes when its wheel is found to be on ``side``.
 
-    A corner keeps its end: FL on a wheel shown to be on the right is FR, not
-    R, because "front" was never in question. Anything else becomes the plain
-    side, which is all this evidence can support.
+    A corner keeps its end: FL on a wheel found to be on the right becomes FR,
+    not R. Anything else becomes the plain side.
     """
     key = (current or "").strip().upper().replace(" ", "").replace("-", "").replace("_", "")
     if key in _CORNERS:
@@ -142,9 +129,8 @@ def infer(
     pass, labelled or not -- the unlabelled ones matter, because they are the
     reason a one-sided reading can still be wrong.
 
-    Returns None when the evidence does not support a call, which is the
-    common case early on: an unlabelled vehicle has nothing to reason from,
-    and saying so is better than a coin flip dressed as a finding.
+    Returns None when the evidence does not support a call, which is common
+    early on: an unlabelled vehicle gives nothing to reason from.
     """
     if not wheels:
         return None

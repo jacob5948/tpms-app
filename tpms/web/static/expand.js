@@ -1,9 +1,7 @@
 /* Collapse the sightings behind each pass, on every table that shows passes.
  *
- * The rows are in the DOM already -- this only hides them, so with JS off the
- * evidence behind a pass is simply visible rather than unreachable. Shared by
- * the log and a vehicle's own pass history: one behaviour, so a reader who
- * learns to open a row in one place has learnt it in both.
+ * The rows are already in the DOM; this only hides them, so with JS off they
+ * are visible instead of unreachable. Shared by the log and the vehicle page.
  */
 (function () {
   document.querySelectorAll('.sub-rows').forEach(row => { row.hidden = true; });

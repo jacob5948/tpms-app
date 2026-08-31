@@ -46,13 +46,12 @@ class Service:
         self._stop = threading.Event()
         self._workers: list[threading.Thread] = []
         #: Settings saved that the running process cannot adopt, kept until it
-        #: is restarted. The pages read it, so the reminder survives the
-        #: navigation away from Settings that loses the flash message.
+        #: restarts. Read by every page, so the reminder outlives the flash
+        #: message that announced the save.
         self.restart_pending: list[str] = []
         self.restarting_at: float | None = None
         #: The thread counting down to the exec, kept so a caller can wait on
-        #: it -- there is exactly one, and starting a second is the bug the
-        #: `restarting_at` guard exists to prevent.
+        #: it. There is at most one; `restarting_at` guards against a second.
         self._restarter: threading.Thread | None = None
 
     # -- lifecycle --------------------------------------------------------
@@ -75,22 +74,18 @@ class Service:
         self._workers.clear()
 
     def restart_process(self, delay: float = 0.75) -> None:
-        """Replace this process with a fresh one, once the reply is out.
+        """Replace this process with a fresh one, after the reply is sent.
 
-        Some settings are only read while the program is starting -- the web
-        server's address, above all -- so saving them and staying up leaves a
-        page insisting on a port nothing is listening on. The Settings page can
-        say "restart"; this is what lets it do it.
+        Some settings are only read at startup -- the web server's address
+        above all -- so saving them has no effect until the program restarts.
 
-        An exec rather than an exit, so it works the same whether a supervisor
-        is watching or someone is running `tpms serve` in a terminal: exiting
-        would be a restart under systemd and a shutdown everywhere else, which
-        is the sort of button that does different things on different machines.
-        The delay is for the HTTP response -- the caller is a request handler,
-        and an exec mid-reply is a restart the user only sees as a dead tab.
+        This execs rather than exits, so it behaves the same under a supervisor
+        and in a terminal; exiting would be a restart under systemd and a
+        shutdown elsewhere. The delay lets the HTTP response go out first,
+        since the caller is a request handler.
         """
         if self.restarting_at is not None:
-            return                      # already on its way; do not queue two
+            return                      # already restarting; do not queue two
         self.restarting_at = now_ts()
         argv = [sys.executable, *sys.argv]
         log.info("restart requested; re-exec in %.1fs: %s", delay, " ".join(argv))
@@ -100,9 +95,9 @@ class Service:
             # service was never started, which would exec before the reply.
             threading.Event().wait(delay)
             try:
-                # Let go of the dongle and close the database: the new image
-                # claims both within milliseconds, and a WAL left mid-write is
-                # a restart that costs readings.
+                # Release the dongle and close the database: the new process
+                # claims both immediately, and a WAL left mid-write loses
+                # readings.
                 self.stop()
                 self.db.close()
             except Exception:  # noqa: BLE001
@@ -228,7 +223,7 @@ class Service:
         # zero mean the front end is saturating and the AGC is not coping.
         # Bounded to the last week of *capture* rather than the whole table:
         # this used to scan every reading ever taken on each page load, and a
-        # gain problem from last winter is not news anyway.
+        # gain problem from last winter is no longer actionable.
         levels = self.db.query_one(
             "SELECT COUNT(*) AS n, "
             "SUM(CASE WHEN rssi > -1.0 THEN 1 ELSE 0 END) AS hot "

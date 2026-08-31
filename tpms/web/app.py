@@ -143,19 +143,14 @@ def create_app(service: Service) -> FastAPI:
     templates.env.globals["wheel_positions"] = direction_mod.WHEEL_POSITIONS
     templates.env.globals["wheel_position_groups"] = direction_mod.WHEEL_POSITION_GROUPS
 
-    # Settings are read per request, never captured here.
+    # Settings are read per request, never captured here: these were once
+    # locals bound at app build time, which stopped working when the Settings
+    # page could change a value -- the save reached the config and the service
+    # but not the pages until a restart.
     #
-    # These were once locals, bound when the app was built. That was harmless
-    # while a config could only change by restarting the process -- and became
-    # a bug the moment the Settings page could change one, because a saved
-    # value would be written to disk, adopted by the service, and still not
-    # reach the log until a restart. A page that appears to do nothing is the
-    # worst of the outcomes, so nothing caches a setting.
-    #
-    # Exposed as callables and called in the templates -- `{{ timezone() }}`.
-    # Jinja renders a bare function as its repr rather than calling it, and a
-    # macro cannot see the render context, so a global that is called is the
-    # one shape that works from inside _macros.html as well as from a page.
+    # Exposed as callables and called in the templates (`{{ timezone() }}`).
+    # Jinja renders a bare function as its repr, and a macro cannot see the
+    # render context, so a called global is what works inside _macros.html.
     templates.env.globals["timezone"] = lambda: service.config.timezone
     templates.env.globals["direction_names"] = lambda: service.config.direction.names
 
@@ -170,9 +165,8 @@ def create_app(service: Service) -> FastAPI:
         flash = request.cookies.get(FLASH_COOKIE)
         context.setdefault("flash", unquote(flash) if flash else None)
         context.setdefault("flash_kind", request.cookies.get(FLASH_KIND_COOKIE) or "ok")
-        # On every page, not only Settings: a saved value that is not yet in
-        # force is a state the whole UI is in, and the flash that announced it
-        # is gone by the next click.
+        # On every page, not only Settings: the flash that announced the save
+        # is gone by the next click, and the setting is still not in force.
         context.setdefault("restart_pending", list(service.restart_pending))
         response = templates.TemplateResponse(request, name, context)
         if flash:
@@ -254,11 +248,9 @@ def create_app(service: Service) -> FastAPI:
             raise HTTPException(404, "vehicle not found")
         sensors = [q.sensor_row(db, s.pk) for s in db.sensors_for_vehicle(vehicle_id)]
         history = {s["pk"]: q.pressure_history(db, s["pk"], 200) for s in sensors}
-        # The same rows the log shows, filtered to this vehicle: a pass is one
-        # thing, and the page you open to study one vehicle should not know
-        # less about its passes than the log does. Read once -- the table shows
-        # the newest hundred, and the sides panel counts every confirmation
-        # there has ever been, which is not the same set.
+        # The same rows the log shows, filtered to this vehicle. Read once:
+        # the table shows the newest hundred, while the sides panel counts
+        # every confirmation ever made, which is a different set.
         passes = q.vehicle_passes(
             db, gap(), vehicle_id=vehicle_id, limit=2000, rssi_margin=rssi_margin()
         )
@@ -281,10 +273,8 @@ def create_app(service: Service) -> FastAPI:
     ) -> dict[str, Any]:
         """What the confirmed passes say about this vehicle's wheels.
 
-        The margin the proposal scales levels by is the one the direction
-        heuristic uses. Two numbers for "louder by enough to mean something"
-        would let the panel and the pills it is scoring disagree about the
-        evidence they are reading.
+        Levels are scaled by the same margin the direction heuristic uses, so
+        the panel and the pills it scores share one definition of "louder".
         """
         if sensors is None:
             sensors = [q.sensor_row(db, s.pk) for s in db.sensors_for_vehicle(vehicle_id)]
@@ -303,10 +293,9 @@ def create_app(service: Service) -> FastAPI:
     def vehicle_sides(request: Request, vehicle_id: int):
         """The sides panel on its own, so the page can refresh it in place.
 
-        Marking a pass changes every number in that panel. Rendering it here
-        rather than rebuilding it in script keeps one description of what the
-        confirmations add up to -- the alternative is a second implementation
-        in JavaScript that can drift from this one.
+        Marking a pass changes every number in the panel. Rendering it here
+        rather than rebuilding it in script avoids a second implementation of
+        the same summary.
         """
         if db.get_vehicle(vehicle_id) is None:
             raise HTTPException(404, "vehicle not found")
@@ -317,8 +306,8 @@ def create_app(service: Service) -> FastAPI:
     @app.get("/sensors", response_class=HTMLResponse)
     def sensors(request: Request):
         # Hidden sensors are rendered but held back by the filter, so the
-        # "Hidden" tile can reveal them without a round trip -- otherwise the
-        # only way to un-hide one would be a URL you had to already know.
+        # "Hidden" tile can reveal them without a round trip. Otherwise
+        # un-hiding one would need a URL the user had to know already.
         rows = q.sensor_rows(db, include_ignored=True)
         return page(
             request,
@@ -364,9 +353,9 @@ def create_app(service: Service) -> FastAPI:
         view = view if view in ("passes", "sightings") else "passes"
         limit = max(10, min(int(limit), 5000))
         start, end = _when("since", since), _when("until", until)
-        # Asking for one sensor by name overrides hiding it. Hidden sensors
-        # are kept out of the lists you browse, not out of the answers you ask
-        # for -- the link to here comes from the sensor's own page.
+        # Asking for one sensor by name overrides hiding it: hidden sensors
+        # are kept out of the lists, not out of a direct query. The link here
+        # comes from the sensor's own page.
         seeing_hidden = sensor is not None
         total = q.count_events(
             db, start=start, end=end, vehicle_id=vehicle, sensor_pk=sensor,
@@ -497,9 +486,8 @@ def create_app(service: Service) -> FastAPI:
         process = sorted(
             p for p in changed if p.split(".")[0] in cfg.NEEDS_PROCESS_RESTART
         )
-        # Remembered on the service, not only said in the flash: the reminder
-        # has to outlive the next click, or a setting that is saved but not in
-        # force becomes invisible the moment the page changes.
+        # Recorded on the service, not only in the flash, so the reminder
+        # outlives the next click.
         for path in process:
             if path not in service.restart_pending:
                 service.restart_pending.append(path)
@@ -940,9 +928,9 @@ def create_app(service: Service) -> FastAPI:
     async def mark_pass(request: Request, sighting_pk: int):
         """Record which side of a vehicle was seen facing the receiver.
 
-        Anchored on a sighting because a pass is not a row: it is however many
-        sightings the current join gap merges, and the answer someone gave with
-        their own eyes must survive that setting being changed.
+        Anchored on a sighting rather than a pass: a pass is however many
+        sightings the current join gap merges, so it has no stable id, and a
+        confirmation must survive that setting changing.
         """
         form = await request.form()
         raw = (form.get("side") or "").strip().lower()
@@ -965,9 +953,8 @@ def create_app(service: Service) -> FastAPI:
     async def apply_sides(request: Request, vehicle_id: int):
         """Label the wheels with the sides the confirmed passes propose.
 
-        A corner label keeps its front-or-rear half -- someone who worked out
-        that a sensor is a rear wheel did not learn it from the radio, and this
-        knows nothing about that half of the answer.
+        A corner label keeps its front-or-rear half, which this inference has
+        no evidence about.
         """
         if db.get_vehicle(vehicle_id) is None:
             raise HTTPException(404, "vehicle not found")
@@ -999,11 +986,10 @@ def create_app(service: Service) -> FastAPI:
     async def service_restart(request: Request):
         """Restart the whole program, not just the receiver.
 
-        The narrower button covers everything the radio reads at startup; this
-        covers what only a new process reads -- the address the web server is
-        bound to, and a config file edited by hand outside this UI. The reply
-        goes out first and the exec follows a moment later, so the browser has
-        a page to reload rather than a dropped connection.
+        The receiver restart covers the radio settings; this covers what only
+        a new process reads -- the web server's address, and a config file
+        edited by hand. The reply is sent before the exec, so the browser has
+        a page to reload.
         """
         service.restart_pending.clear()
         service.restart_process()

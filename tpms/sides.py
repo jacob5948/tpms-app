@@ -1,30 +1,22 @@
-"""Which side each wheel is on, learned from passes someone confirmed.
+"""Infer which side each wheel is on, from passes a user confirmed.
 
-`direction.py` runs this the other way round: given wheel labels, it says which
-way a vehicle was pointing. That is the useful direction of travel once the
-wheels are labelled -- and labelling them is the part nobody can do from the
-radio, because a sensor announces an id and nothing else.
+direction.py works the other way: given wheel labels, it infers which side
+faced the receiver. Those labels cannot come from the radio, since a sensor
+transmits only an id and its readings. This module derives them from passes
+where the user recorded which side they saw.
 
-Confirmation breaks the circle. Someone watching the camera knows which side of
-the car faced the receiver on a given pass; the receiver knows which wheels it
-heard, and how loudly. Do that over a dozen passes and the wheels sort
-themselves into two groups: the ones heard when the left side was near, and the
-ones heard when the right was.
+Two signals are combined, because each is weak alone:
 
-Two independent signals, because each is weak alone:
+Presence. The car blocks the far side, so a sensor heard on most left-side
+passes and few right-side ones is on the left. This works at range and is
+weighted higher.
 
-*Presence.* A wheel on the far side is often not heard at all -- the car is in
-the way. So a sensor heard on most left-side passes and few right-side ones is
-on the left. This is the stronger signal and the one that works at range.
+Level. When both sides are heard, the near side is louder. Levels are taken
+relative to the loudest wheel of the same pass, so one close pass does not
+dominate the distant ones.
 
-*Level.* When both sides are heard, the near side is louder. Levels are taken
-relative to the loudest wheel *on that same pass*, so a close pass and a
-distant one contribute the same kind of number: how far down from the top of
-this pass was it. Without that, one very close pass dominates every other.
-
-Nothing here writes anything. It proposes, the page shows its working, and a
-person presses the button -- an inference that silently relabels the thing it
-inferred from is one nobody can check.
+Nothing here writes to the database. It returns proposals; the vehicle page
+shows the counts behind them and applies them only when the user asks.
 """
 
 from __future__ import annotations
@@ -34,18 +26,16 @@ from typing import Any, Iterable
 
 from .direction import LEFT, RIGHT, side_of
 
-#: Confirmed passes needed on *each* side before a proposal is made at all.
-#: Below this the numbers still read like an answer -- one pass each way gives a
-#: presence score of 1.0 -- so the bar is about honesty, not arithmetic.
+#: Confirmed passes needed on each side before anything is proposed. One pass
+#: each way already yields a presence score of 1.0, which looks like certainty.
 MIN_PASSES_PER_SIDE = 3
 
-#: How far the two scores must part before this will name a side. A sensor
-#: heard equally either way is a wheel this method cannot place, which is a
-#: real outcome and better said than dressed up.
+#: Minimum combined score before a side is named. A sensor heard equally either
+#: way cannot be placed by this method, and is reported as "no call".
 MIN_SCORE = 0.2
 
-#: Presence over level. Level only speaks when both sides were audible on one
-#: pass, which is the minority of them, and it is the noisier of the two.
+#: Presence is weighted higher: level only applies when both sides were heard on
+#: one pass, which is the minority of passes, and it is the noisier signal.
 PRESENCE_WEIGHT = 0.6
 
 
@@ -63,8 +53,8 @@ class Evidence:
     levels: dict[str, float | None]
     #: "left" or "right", or None when the evidence does not support a call.
     side: str | None
-    #: -1 (firmly right) to +1 (firmly left). Kept even when side is None:
-    #: the page shows a leaning that has not yet earned a label.
+    #: -1 (firmly right) to +1 (firmly left). Kept when side is None so the
+    #: page can show a leaning that has not reached the threshold.
     score: float
     basis: str
 
@@ -85,9 +75,8 @@ def _relative_levels(passes: Iterable[dict[str, Any]]) -> dict[int, dict[str, li
     for one in passes:
         sightings = one["sightings"]
         levels = [s["max_rssi"] for s in sightings if s["max_rssi"] is not None]
-        # One wheel heard says nothing about *relative* strength; the best
-        # reading of the pass is also the only one, so every such pass would
-        # contribute a flat zero to whichever side it was and swamp the rest.
+        # With one wheel heard, that wheel is also the loudest, so the pass
+        # would contribute a flat zero to whichever side it was confirmed as.
         if len(levels) < 2:
             continue
         loudest = max(levels)
@@ -109,12 +98,10 @@ def propose(
 ) -> list[Evidence]:
     """Read confirmed passes into a proposed side for each of a vehicle's wheels.
 
-    ``passes`` are rows from `queries.vehicle_passes`; the unconfirmed ones are
-    ignored rather than filtered out by the caller, so nobody has to remember
-    to. ``level_scale`` is the dB difference treated as a full-strength reading
-    -- the same quantity `direction.rssi_margin` sets, and it should be given
-    the same value, so the two halves of the program agree on what "louder by
-    enough to mean something" is.
+    ``passes`` are rows from queries.vehicle_passes; unconfirmed ones are
+    ignored here rather than by the caller. ``level_scale`` is the dB
+    difference treated as a full-strength signal, and should be given the same
+    value as direction.rssi_margin so both use one definition of "louder".
     """
     confirmed = [p for p in passes if p.get("confirmed") in (LEFT, RIGHT)]
     totals = {
@@ -168,8 +155,7 @@ def propose(
                 basis=_basis(heard, totals, mean, enough, min_passes),
             )
         )
-    # Strongest evidence first: the wheel the confirmations are surest about is
-    # the one worth reading, and a list in database order buries it.
+    # Strongest evidence first, so the best-supported wheel is at the top.
     out.sort(key=lambda e: -abs(e.score))
     return out
 
@@ -181,7 +167,7 @@ def _basis(
     enough: bool,
     min_passes: int,
 ) -> str:
-    """Why, in the terms the reader can check against the pass table."""
+    """The reasoning in words, in terms that match the pass table above it."""
     if not enough:
         short = [
             f"{max(0, min_passes - totals[side])} more {side}-side"
@@ -201,12 +187,11 @@ def _basis(
 
 
 def accuracy(passes: Iterable[dict[str, Any]]) -> dict[str, int]:
-    """How often the radio's guess matched what was confirmed.
+    """How often direction.infer matched what was confirmed.
 
-    The one number that says whether the direction pills on the *unconfirmed*
-    passes are worth reading. Passes the heuristic declined to call are counted
-    separately: declining is not a wrong answer, and averaging it in with the
-    wrong ones would punish the caution that makes the rest trustworthy.
+    This is how much the Direction column can be trusted on unconfirmed
+    passes. Passes the heuristic declined to call are counted separately,
+    since declining is not a wrong answer.
     """
     result = {"confirmed": 0, "called": 0, "right": 0, "declined": 0}
     for one in passes:

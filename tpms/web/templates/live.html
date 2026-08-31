@@ -187,7 +187,7 @@ refreshRate();
 setInterval(refreshRate, 30000);
 setInterval(refreshHeard, 60000);   // catch sightings closing with no new reading
 
-// Keep relative times honest without a reload.
+// Keep relative times current without a reload.
 setInterval(() => {
   document.querySelectorAll('[data-ts]').forEach(el => {
     el.textContent = relTime(parseFloat(el.dataset.ts));

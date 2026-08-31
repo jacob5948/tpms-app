@@ -84,7 +84,7 @@
     {{ m.stat('Raw archive', status.storage.archive_bytes | bytes,
               'compressed past ' ~ status.storage.policy.archive_gzip_days ~ ' days'
               if status.storage.policy.archive_gzip_days else 'kept uncompressed') }}
-    {# Under ten days the figure is worth a decimal: "0.8 days" is honest
+    {# Under ten days the figure needs a decimal: "0.8 days" is accurate
        where "1 days" is both wrong and ungrammatical. #}
     {{ m.stat('Readings held', status.storage.readings,
               (('%.1f days of capture' if status.storage.capture_days < 10

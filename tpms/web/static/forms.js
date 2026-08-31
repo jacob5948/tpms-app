@@ -167,22 +167,15 @@
       });
   });
 
-  /* The tick and the bar under it.
+  /* The tick boxes and the bulk bar under them.
    *
-   * Nothing on screen used to connect the two: the checkboxes changed no
-   * appearance, the bar said "with the ticked sensors" whether or not any
-   * were, and pressing an action with an empty set was answered by the
-   * server.
+   * Previously the bar stood there permanently under the instruction "Tick
+   * the sensors to act on:", and ticking a row changed nothing on screen. It
+   * now appears on the first tick, in the accent the ticked rows use, and
+   * shows a count instead of the instruction.
    *
-   * The bar now stays out of the way until there is a selection to act on.
-   * It carried a standing instruction -- "Tick the sensors to act on:" --
-   * which is a sentence for something the checkbox column already says by
-   * being there. Appearing on the first tick, in the same accent the ticked
-   * rows wear, is the same information without the sentence.
-   *
-   * All of this is decoration over a form that still works without it: the
-   * bar is in the HTML and only hidden from here, so with JS off every
-   * action is reachable, and the server refuses the same cases either way. */
+   * The bar is in the HTML and only hidden from here, so with JS off every
+   * action stays reachable and the server refuses the same cases either way. */
   function wireSelection(form) {
     const boxes = Array.from(form.querySelectorAll('input[type="checkbox"][name="sensor"]'));
     if (!boxes.length) return;

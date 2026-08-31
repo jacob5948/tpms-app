@@ -76,33 +76,31 @@ direction:
   right: southbound
 ```
 
-Unnamed, the log reports "left side" / "right side" instead, which is as far as
-the radio can honestly go.
+Unnamed, the log reports "left side" / "right side" instead, which is as far
+as the radio can go.
 
 The guess declines more often than it answers. A pass with no labelled wheels,
-or one where both sides were heard at similar strength, shows nothing at all
-rather than a coin flip. A call that rests on a level comparison, or on wheels
-whose side is unknown, is marked with a `?` and carries its reasoning in the
-tooltip.
+or one where both sides were heard at similar strength, shows nothing at all. A
+call that rests on a level comparison, or on wheels whose side is unknown, is
+marked with a `?` and carries its reasoning in the tooltip.
 
 ### Confirm a pass, and let it label the wheels for you
 
 That leaves the hard part: knowing which wheel is on which side in the first
-place. The radio cannot tell you — a sensor announces an id and nothing else.
-If you can see what went past, whether from a camera or a window, you can tell
-it, and it will work the rest out.
+place. The radio cannot tell you — a sensor transmits an id and its readings.
+If you can see what went past, from a camera or a window, you can record it and
+the program works the rest out.
 
 Every pass row, in the log and on a vehicle's own page, has a **Seen** picker
-carrying your two direction names. Confirm what actually went by. Nothing else
-is asked of you.
+holding your two direction names. Confirm what actually went by; that is the
+whole of the input.
 
-A confirmation is worth more than any inference in this program, so it is
-treated that way. It is anchored on a real sighting rather than on a derived
-pass, which means changing `sessions.gap_seconds` — a setting that re-slices
-history into different passes — cannot lose it. It can be corrected or cleared.
-And it scores the guesswork: the **Direction** pill on a confirmed pass turns
-green when the radio agreed with you and amber when it did not, so you can see
-at a glance how far to trust that column on the passes nobody has confirmed.
+A confirmation is anchored on a real sighting rather than on a derived pass, so
+changing `sessions.gap_seconds` — which re-slices history into different passes
+— cannot lose it. It can be corrected or cleared. It also scores the guesswork:
+the **Direction** pill on a confirmed pass turns green when the radio agreed
+and amber when it did not, which shows how far to trust that column on the
+passes nobody has confirmed.
 
 Confirm a few each way and the **Wheel sides from confirmed passes** panel on
 the vehicle page places the wheels, from two independent signals:
@@ -113,17 +111,15 @@ the vehicle page places the wheels, from two independent signals:
 - **Which were louder.** Levels are taken relative to the loudest wheel *of the
   same pass*, so one close pass cannot outvote a dozen distant ones.
 
-It shows its working — the counts and the dB gap are right there beside the
-proposal, and the passes being counted are in the table above. It refuses to
-answer below three confirmed passes each way, or when a wheel is heard equally
-either way; "no call" is a real answer, and a wheel that this cannot place is
-better left unlabelled than guessed at. **Apply these sides** writes the labels,
-keeping the front-or-rear half of any corner label already set — nobody learned
-that half from the radio, and this has no business overwriting it.
+The counts and the dB gap sit beside each proposal, and the passes they count
+are in the table above. It reports "no call" below three confirmed passes each
+way, or when a wheel is heard equally either way, rather than guessing.
+**Apply these sides** writes the labels, keeping the front-or-rear half of any
+corner label already set, which this inference has no evidence about.
 
 One thing it cannot know: which physical side is "left". That comes from your
 `direction:` names. If you called the entering side `left` and the cars are in
-fact showing you their right, every label comes out mirrored — consistently, and
+fact showing you their right, every label comes out mirrored — consistently, so
 the directions still read correctly, but `L` will mean the right-hand wheels.
 
 ## Settings
@@ -132,9 +128,9 @@ Everything in `config.yaml` is editable at <http://localhost:8080/settings>.
 The page is generated from the config itself, so it is never out of step with
 what the file accepts.
 
-Saves take effect immediately — the log, the charts and the clock all re-read
-their settings on every request. Two kinds of setting are read only at startup,
-and for both the page says so and offers the restart:
+Saves take effect immediately: the log, the charts and the clock re-read their
+settings on every request. Two kinds of setting are read only at startup, and
+for both the page says so and offers the restart:
 
 - **Radio settings.** The receiver reads them when it launches `rtl_433`, so
   **Restart receiver** is enough; capture pauses for a second.
@@ -679,10 +675,10 @@ neighbouring vehicle's cluster.
 
 Half of what these pages do only exists once script has run: the charts are
 drawn from fetched JSON, pass rows expand, the bulk bar appears on the first
-tick, and saves are posted without leaving the page. A string in the HTML says
-nothing about any of it, so `tests/test_browser.py` drives the real thing with
-Playwright. Each of those tests also fails on a console error, which is how a
-page that renders and quietly does nothing gets caught.
+tick, and saves are posted without leaving the page. A string in the HTML is
+not evidence any of that works, so `tests/test_browser.py` drives the real
+thing with Playwright. Each of those tests also fails on a console error, so a
+page that renders but does nothing is caught.
 
 ```bash
 .venv/bin/pip install -e '.[dev]'
@@ -691,10 +687,9 @@ page that renders and quietly does nothing gets caught.
 ```
 
 They skip themselves, with the command to fix it, when playwright or its
-browser is missing — the rest of the suite still runs on a machine without
-either. **Any change to a template, to `app.css` or to a script under
-`static/` belongs in that file**, alongside whatever HTML-level assertion the
-change deserves.
+browser is missing, so the rest of the suite still runs without either. **Any
+change to a template, to `app.css` or to a script under `static/` belongs in
+that file**, alongside whatever HTML-level assertion the change deserves.
 
 For looking rather than asserting — layout, spacing, whether a control reads as
 a control — there is a screenshot tool over the same synthetic data:
