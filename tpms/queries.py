@@ -679,6 +679,10 @@ def vehicle_passes(
         params,
     )
 
+    # What was confirmed by eye, keyed by the sighting each confirmation was
+    # anchored on. Read once for the page rather than per row.
+    marks = db.pass_marks()
+
     # How many wheels each vehicle is known to have, so a pass can say "3 of 4"
     # -- a vehicle that usually shows four and showed one is worth noticing.
     known: dict[int, int] = {
@@ -711,6 +715,14 @@ def vehicle_passes(
             bounds=lambda r: (float(r["started_at"]), r["ended_at"]),
         ):
             members = sorted(run["items"], key=lambda r: float(r["started_at"]))
+            # A confirmation is anchored on the first sighting of the pass it
+            # was entered on. Every member is checked, not just that one: the
+            # join gap is a setting, and a pass re-sliced under a new one must
+            # keep the answer someone gave with their own eyes.
+            anchor = int(members[0]["pk"])
+            confirmed = next(
+                (marks[int(r["pk"])] for r in members if int(r["pk"]) in marks), None
+            )
             newest = max(members, key=lambda r: float(r["last_reading_at"]))
             rssis = [r["max_rssi"] for r in members if r["max_rssi"] is not None]
             wheels = {int(r["sensor_pk"]) for r in members}
@@ -750,6 +762,11 @@ def vehicle_passes(
                         [(r["wheel_label"], r["max_rssi"]) for r in members],
                         rssi_margin,
                     ),
+                    # What was actually seen, when someone said so. It is not
+                    # the heading: one is evidence and the other is a guess,
+                    # and folding them together would lose which is which.
+                    "anchor": anchor,
+                    "confirmed": confirmed,
                     "max_rssi": max(rssis) if rssis else None,
                     "band": band_label(newest["freq_mhz"]),
                     "sightings": [

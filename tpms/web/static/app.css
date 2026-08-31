@@ -493,6 +493,15 @@ tbody tr:has(input[type="checkbox"][name="sensor"]:checked) td:first-child {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
 }
+/* A guess that has since been checked against what someone saw. Green and red
+   are the only two states here that mean right and wrong, so they earn the
+   colours; everything else on the page stays in the neutral palette. */
+.pill.heading.matched {
+  background: color-mix(in srgb, var(--live) 15%, transparent); color: var(--live);
+}
+.pill.heading.missed {
+  background: var(--warn-bg); color: var(--warn);
+}
 .pill.heading.tentative {
   background: transparent; color: var(--muted);
   border: 1px dashed var(--line);

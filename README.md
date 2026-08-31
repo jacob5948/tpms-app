@@ -85,6 +85,47 @@ rather than a coin flip. A call that rests on a level comparison, or on wheels
 whose side is unknown, is marked with a `?` and carries its reasoning in the
 tooltip.
 
+### Confirm a pass, and let it label the wheels for you
+
+That leaves the hard part: knowing which wheel is on which side in the first
+place. The radio cannot tell you — a sensor announces an id and nothing else.
+If you can see what went past, whether from a camera or a window, you can tell
+it, and it will work the rest out.
+
+Every pass row, in the log and on a vehicle's own page, has a **Seen** picker
+carrying your two direction names. Confirm what actually went by. Nothing else
+is asked of you.
+
+A confirmation is worth more than any inference in this program, so it is
+treated that way. It is anchored on a real sighting rather than on a derived
+pass, which means changing `sessions.gap_seconds` — a setting that re-slices
+history into different passes — cannot lose it. It can be corrected or cleared.
+And it scores the guesswork: the **Direction** pill on a confirmed pass turns
+green when the radio agreed with you and amber when it did not, so you can see
+at a glance how far to trust that column on the passes nobody has confirmed.
+
+Confirm a few each way and the **Wheel sides from confirmed passes** panel on
+the vehicle page places the wheels, from two independent signals:
+
+- **Which wheels went missing.** The far side is the one the car blocks, so a
+  sensor heard on most of your entrances and few of your exits is on the side
+  that faces the receiver as cars come in.
+- **Which were louder.** Levels are taken relative to the loudest wheel *of the
+  same pass*, so one close pass cannot outvote a dozen distant ones.
+
+It shows its working — the counts and the dB gap are right there beside the
+proposal, and the passes being counted are in the table above. It refuses to
+answer below three confirmed passes each way, or when a wheel is heard equally
+either way; "no call" is a real answer, and a wheel that this cannot place is
+better left unlabelled than guessed at. **Apply these sides** writes the labels,
+keeping the front-or-rear half of any corner label already set — nobody learned
+that half from the radio, and this has no business overwriting it.
+
+One thing it cannot know: which physical side is "left". That comes from your
+`direction:` names. If you called the entering side `left` and the cars are in
+fact showing you their right, every label comes out mirrored — consistently, and
+the directions still read correctly, but `L` will mean the right-hand wheels.
+
 ## Settings
 
 Everything in `config.yaml` is editable at <http://localhost:8080/settings>.

@@ -20,6 +20,7 @@ from pydantic import BeforeValidator
 
 from .. import config as cfg
 from .. import direction as direction_mod
+from .. import sides as sides_mod
 from .. import queries as q
 from ..models import Vehicle, now as now_ts, parse_when, to_iso
 from ..retention import human_bytes
@@ -253,6 +254,14 @@ def create_app(service: Service) -> FastAPI:
             raise HTTPException(404, "vehicle not found")
         sensors = [q.sensor_row(db, s.pk) for s in db.sensors_for_vehicle(vehicle_id)]
         history = {s["pk"]: q.pressure_history(db, s["pk"], 200) for s in sensors}
+        # The same rows the log shows, filtered to this vehicle: a pass is one
+        # thing, and the page you open to study one vehicle should not know
+        # less about its passes than the log does. Read once -- the table shows
+        # the newest hundred, and the sides panel counts every confirmation
+        # there has ever been, which is not the same set.
+        passes = q.vehicle_passes(
+            db, gap(), vehicle_id=vehicle_id, limit=2000, rssi_margin=rssi_margin()
+        )
         return page(
             request,
             "vehicle.html",
@@ -260,14 +269,49 @@ def create_app(service: Service) -> FastAPI:
             vehicle=vehicle,
             sensors=sensors,
             history=history,
-            # The same rows the log shows, filtered to this vehicle: a pass
-            # is one thing, and the page you open to study one vehicle should
-            # not know less about its passes than the log does.
-            passes=q.vehicle_passes(
-                db, gap(), vehicle_id=vehicle_id, limit=100,
-                rssi_margin=rssi_margin(),
-            ),
+            passes=passes[:100],
             all_vehicles=[v for v in _vehicle_choices() if v.pk != vehicle_id],
+            **_sides_context(vehicle_id, sensors, passes),
+        )
+
+    def _sides_context(
+        vehicle_id: int,
+        sensors: list[dict[str, Any]] | None = None,
+        passes: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """What the confirmed passes say about this vehicle's wheels.
+
+        The margin the proposal scales levels by is the one the direction
+        heuristic uses. Two numbers for "louder by enough to mean something"
+        would let the panel and the pills it is scoring disagree about the
+        evidence they are reading.
+        """
+        if sensors is None:
+            sensors = [q.sensor_row(db, s.pk) for s in db.sensors_for_vehicle(vehicle_id)]
+        if passes is None:
+            passes = q.vehicle_passes(
+                db, gap(), vehicle_id=vehicle_id, limit=2000, rssi_margin=rssi_margin()
+            )
+        return {
+            "vehicle_pk": vehicle_id,
+            "sides": sides_mod.propose(passes, sensors, level_scale=rssi_margin()),
+            "accuracy": sides_mod.accuracy(passes),
+            "min_passes": sides_mod.MIN_PASSES_PER_SIDE,
+        }
+
+    @app.get("/api/vehicles/{vehicle_id}/sides", response_class=HTMLResponse)
+    def vehicle_sides(request: Request, vehicle_id: int):
+        """The sides panel on its own, so the page can refresh it in place.
+
+        Marking a pass changes every number in that panel. Rendering it here
+        rather than rebuilding it in script keeps one description of what the
+        confirmations add up to -- the alternative is a second implementation
+        in JavaScript that can drift from this one.
+        """
+        if db.get_vehicle(vehicle_id) is None:
+            raise HTTPException(404, "vehicle not found")
+        return templates.TemplateResponse(
+            request, "_sides.html", _sides_context(vehicle_id)
         )
 
     @app.get("/sensors", response_class=HTMLResponse)
@@ -891,6 +935,60 @@ def create_app(service: Service) -> FastAPI:
         if request.headers.get("accept", "").startswith("application/json"):
             return JSONResponse({"summary": report.summary()})
         return _back(request, "/vehicles", report.summary())
+
+    @app.post("/api/passes/{sighting_pk}/mark")
+    async def mark_pass(request: Request, sighting_pk: int):
+        """Record which side of a vehicle was seen facing the receiver.
+
+        Anchored on a sighting because a pass is not a row: it is however many
+        sightings the current join gap merges, and the answer someone gave with
+        their own eyes must survive that setting being changed.
+        """
+        form = await request.form()
+        raw = (form.get("side") or "").strip().lower()
+        if raw not in ("", "none", direction_mod.LEFT, direction_mod.RIGHT):
+            raise HTTPException(400, f"not a side: {raw}")
+        if db.query_one("SELECT 1 FROM sightings WHERE pk = ?", (sighting_pk,)) is None:
+            raise HTTPException(404, "sighting not found")
+
+        side = None if raw in ("", "none") else raw
+        db.mark_pass(sighting_pk, side, now_ts())
+        names = service.config.direction.names
+        message = (
+            f"Pass confirmed as {names.get(side) or side + ' side'}."
+            if side
+            else "Confirmation cleared."
+        )
+        return _back(request, "/events", message)
+
+    @app.post("/api/vehicles/{vehicle_id}/apply-sides")
+    async def apply_sides(request: Request, vehicle_id: int):
+        """Label the wheels with the sides the confirmed passes propose.
+
+        A corner label keeps its front-or-rear half -- someone who worked out
+        that a sensor is a rear wheel did not learn it from the radio, and this
+        knows nothing about that half of the answer.
+        """
+        if db.get_vehicle(vehicle_id) is None:
+            raise HTTPException(404, "vehicle not found")
+        applied = []
+        for evidence in _sides_context(vehicle_id)["sides"]:
+            if not evidence.changes:
+                continue
+            label = direction_mod.side_label(evidence.wheel_label, evidence.side)
+            db.execute(
+                "UPDATE sensors SET wheel_label = ? WHERE pk = ?",
+                (label, evidence.sensor_pk),
+            )
+            applied.append(f"{evidence.display} \u2192 {label}")
+        if not applied:
+            return _back(request, f"/vehicles/{vehicle_id}", "Nothing to change.")
+        return _back(
+            request,
+            f"/vehicles/{vehicle_id}",
+            f"Labelled {len(applied)} wheel{'' if len(applied) == 1 else 's'}: "
+            + ", ".join(applied),
+        )
 
     @app.post("/api/radio/restart")
     async def radio_restart(request: Request):

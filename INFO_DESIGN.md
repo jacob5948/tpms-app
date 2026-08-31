@@ -239,6 +239,15 @@ that is quietly not in force. Restarting is an exec of this same program, not
 an exit: exiting is a restart under systemd and a shutdown in a terminal, and
 one button must not mean two things.
 
+**Evidence outranks inference, and the page says which is which.** The radio's
+guess at a direction and a person's confirmation of it are different kinds of
+fact, so they are different columns — never one column showing whichever it
+has. A confirmation is anchored on a sighting rather than a derived pass, so a
+settings change cannot lose it; it can always be corrected; and it is what the
+guess beside it is scored against. The panel that reasons from confirmations
+shows its counts, refuses to answer on thin evidence, and never writes a label
+without someone pressing the button.
+
 **A UI change is checked in a browser.** Charts, expanding rows, the bar that
 appears on the first tick and every save that does not reload the page exist
 only after script has run, so reading the served HTML is not evidence any of

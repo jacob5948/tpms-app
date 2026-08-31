@@ -177,7 +177,11 @@
 {# Declared outside the split form: HTML forbids nesting, so the row controls
    reach them by `form=` instead. #}
 {% for s in sensors %}
-<form id="wheel-form-{{ s.pk }}" method="post" data-async data-busy="Saving…"
+{# Not data-async: a wheel label rewrites the badge beside the sensor, every
+   direction cell in the pass table and the sides panel. Saving it in place
+   left the page contradicting itself -- a picker reading R above a row of
+   pills computed while it still said L. #}
+<form id="wheel-form-{{ s.pk }}" method="post" data-busy="Saving…"
       action="/api/sensors/{{ s.pk }}" hidden></form>
 <form id="pin-form-{{ s.pk }}" method="post" data-busy="Saving…"
       action="/api/sensors/{{ s.pk }}" hidden></form>
@@ -225,7 +229,7 @@
        straight at how many wheels were heard. #}
     <thead><tr>
       <th>First heard</th><th>Last heard</th><th class="num">Duration</th>
-      <th>Direction</th><th class="num">Wheels</th><th class="num">Readings</th>
+      <th>Direction</th><th>Seen</th><th class="num">Wheels</th><th class="num">Readings</th>
       <th class="num">Peak RSSI</th><th>Band</th><th></th>
     </tr></thead>
     <tbody>
@@ -237,7 +241,8 @@
           {%- else %}{{ p.last_reading_at | ago }}{% endif -%}
         </td>
         <td class="num" data-sort="{{ p.duration }}">{{ p.duration | duration }}</td>
-        {{ m.heading_cell(p.heading) }}
+        {{ m.heading_cell(p.heading, p.confirmed) }}
+        {{ m.confirm_cell(p) }}
         {{ m.wheels_cell(p.wheels_heard, p.wheels_known) }}
         <td class="num">{{ p.reading_count }}</td>
         <td class="num" data-sort="{{ p.max_rssi if p.max_rssi is not none else '' }}">
@@ -245,7 +250,7 @@
         <td class="band">{{ p.band or '—' }}</td>
         <td>{{ m.expand_button('pass-' ~ loop.index, p.sightings | length) }}</td>
       </tr>
-      {{ m.sightings_rows(p.sightings, 'pass-' ~ loop.index, 9) }}
+      {{ m.sightings_rows(p.sightings, 'pass-' ~ loop.index, 10) }}
       {% endfor %}
     </tbody>
   </table></div>
@@ -253,6 +258,11 @@
   <div class="empty">No passes recorded.</div>
   {% endif %}
 </div>
+
+{# Directly under the passes it is counting: the argument for a side is the
+   rows above, and a panel of conclusions parked away from its evidence is one
+   nobody can check. #}
+{% include "_sides.html" %}
 
 <h2>Pressure history</h2>
 <div class="panel">
@@ -265,6 +275,7 @@
 
 {% block scripts %}
 <script src="/static/expand.js"></script>
+<script src="/static/marks.js"></script>
 <script src="/static/chart.js"></script>
 <script>
 (function () {

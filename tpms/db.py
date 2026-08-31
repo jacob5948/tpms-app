@@ -13,7 +13,7 @@ from typing import Any, Iterable, Sequence
 
 from .models import Reading, Sensor, Sighting, Vehicle
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sensors (
@@ -105,6 +105,18 @@ CREATE TABLE IF NOT EXISTS cooccurrence (
     count   INTEGER NOT NULL DEFAULT 0,
     last_at REAL NOT NULL,
     PRIMARY KEY (a, b)
+);
+
+-- What was actually seen go past, as opposed to what the radio guessed. One
+-- row per pass the user confirmed, anchored on the first sighting in it: a
+-- pass is derived at read time from whatever the join gap is now, so there is
+-- no pass row to point at, and a sighting is the most stable thing there is.
+-- `side` is which side of the vehicle faced the receiver -- the same fact
+-- direction.infer guesses, and named the same way on the page.
+CREATE TABLE IF NOT EXISTS pass_marks (
+    sighting_pk INTEGER PRIMARY KEY REFERENCES sightings(pk) ON DELETE CASCADE,
+    side        TEXT NOT NULL,
+    noted_at    REAL NOT NULL
 );
 
 -- Guarantees a pair is counted at most once per shared sighting, so a single
@@ -509,6 +521,38 @@ class Database:
             (since, until, exclude),
         )
         return [int(r["sensor_pk"]) for r in rows]
+
+    # -- confirmed passes -------------------------------------------------
+
+    def mark_pass(self, sighting_pk: int, side: str | None, when: float) -> None:
+        """Record which side of a vehicle actually faced the receiver.
+
+        ``side`` of None clears the mark: a confirmation entered by mistake has
+        to be removable, or the record the inference trusts most is the one
+        thing on the page that cannot be corrected.
+        """
+        with self.write_lock, self.connect() as conn:
+            if side is None:
+                conn.execute("DELETE FROM pass_marks WHERE sighting_pk = ?", (sighting_pk,))
+                return
+            conn.execute(
+                "INSERT INTO pass_marks (sighting_pk, side, noted_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(sighting_pk) DO UPDATE SET side = excluded.side, "
+                "noted_at = excluded.noted_at",
+                (sighting_pk, side, when),
+            )
+
+    def pass_marks(self) -> dict[int, str]:
+        """Every confirmation, by the sighting it is anchored on.
+
+        All of them, in one query: a page shows a hundred passes at most, and
+        the alternative is a lookup per row against a table with one row per
+        pass anyone has ever confirmed.
+        """
+        return {
+            int(r["sighting_pk"]): r["side"]
+            for r in self.query("SELECT sighting_pk, side FROM pass_marks")
+        }
 
     # -- co-occurrence ---------------------------------------------------
 

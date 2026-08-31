@@ -89,6 +89,30 @@ def side_of(label: str | None) -> str | None:
     return spelled.get(key)
 
 
+#: The corner labels, by the side and the end of the car they name. Used to
+#: move a label from one side to the other without losing the half that says
+#: front or rear -- nobody learned that half from the radio, and a proposal
+#: about sides has no business throwing it away.
+_CORNERS: dict[str, tuple[str, str]] = {
+    "FL": ("F", LEFT), "FR": ("F", RIGHT),
+    "RL": ("R", LEFT), "RR": ("R", RIGHT),
+}
+_CORNER_LABELS = {(end, side): label for label, (end, side) in _CORNERS.items()}
+
+
+def side_label(current: str | None, side: str) -> str:
+    """The label ``current`` becomes when its wheel is found to be on ``side``.
+
+    A corner keeps its end: FL on a wheel shown to be on the right is FR, not
+    R, because "front" was never in question. Anything else becomes the plain
+    side, which is all this evidence can support.
+    """
+    key = (current or "").strip().upper().replace(" ", "").replace("-", "").replace("_", "")
+    if key in _CORNERS:
+        return _CORNER_LABELS[(_CORNERS[key][0], side)]
+    return "L" if side == LEFT else "R"
+
+
 @dataclass(frozen=True)
 class Heading:
     """One pass's direction, and what it rests on."""

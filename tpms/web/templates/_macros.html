@@ -124,15 +124,58 @@
   basis is always one hover away -- an inference the reader cannot audit is
   worse than no inference, because it looks like a measurement.
 #}
-{% macro heading_cell(heading) %}
+{#
+  What was confirmed by eye, and the control that confirms it.
+
+  A separate column from Direction on purpose: one is a guess from radio and
+  the other is a fact from a camera, and a single cell showing whichever it has
+  would quietly turn one into the other. Side by side, the pair also reads as
+  the score -- how often the guess matched -- which is what the panel under the
+  table adds up.
+
+  A picker, not two buttons: it is the same shape as the wheel control, it
+  states the two answers rather than making the reader guess what a button
+  does, and it can be un-set, which two buttons could not.
+#}
+{% macro confirm_cell(p) %}
+{%- set field = 'mark-' ~ p.anchor -%}
+{%- set names = direction_names() -%}
+<td class="actions" data-sort="{{ p.confirmed or '' }}">
+  <form method="post" data-async data-busy="Saving…"
+        action="/api/passes/{{ p.anchor }}/mark">
+    <label class="sr-only" for="{{ field }}">What was seen on this pass</label>
+    <select id="{{ field }}" name="side" class="wheel-picker" data-save-on-change
+            data-mark>
+      <option value=""{{ ' selected' if not p.confirmed }}>&mdash; unconfirmed &mdash;</option>
+      <option value="left"{{ ' selected' if p.confirmed == 'left' }}>
+        {{- names.left or 'left side' -}}</option>
+      <option value="right"{{ ' selected' if p.confirmed == 'right' }}>
+        {{- names.right or 'right side' -}}</option>
+    </select>
+    {# Saves itself once script is running, which hides this. Without script it
+       is the only way to submit -- the same fallback the wheel picker uses. #}
+    <button class="ghost" type="submit" data-fallback-for="{{ field }}"
+            aria-label="Save what was seen on this pass">Set</button>
+  </form>
+</td>
+{% endmacro %}
+
+{% macro heading_cell(heading, confirmed=None) %}
 <td data-sort="{{ heading.side if heading else '' }}">
   {%- if heading -%}
-  <span class="pill heading{{ ' tentative' if not heading.firm }}"
-        title="{{ heading.basis }}{{ '' if heading.firm else ' — a guess, not a reading' }}">
+  {#- A guess that has since been checked is marked as right or wrong, not
+      hidden: the column is only worth reading on the passes nobody confirmed,
+      and how far to trust it there is exactly what these agreements say. -#}
+  {%- set verdict = none if not confirmed else (heading.side == confirmed) -%}
+  <span class="pill heading{{ ' tentative' if not heading.firm }}
+               {{- ' matched' if verdict }}{{ ' missed' if verdict is false }}"
+        title="{{ heading.basis }}{{ '' if heading.firm else ' — a guess, not a reading' }}
+               {{- ' — matches what was seen' if verdict }}
+               {{- ' — what was seen says otherwise' if verdict is false }}">
     {{- heading.name(direction_names()) -}}
     {%- if not heading.firm %}?{% endif -%}
   </span>
-  {%- else -%}<span class="muted">—</span>{%- endif -%}
+  {%- else -%}<span class="muted">&mdash;</span>{%- endif -%}
 </td>
 {% endmacro %}
 

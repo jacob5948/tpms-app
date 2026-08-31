@@ -129,3 +129,58 @@ def test_naming_a_vehicle_sticks(site, page):
     page.wait_for_load_state("networkidle")
     page.goto(f"{url}/vehicles/{vehicle_pk}")
     assert "The blue van" in page.locator("h1").inner_text()
+
+
+# -- confirming what was seen ------------------------------------------------
+
+
+def test_confirming_a_pass_updates_the_panel_that_counts_it(site, page):
+    """Every number in the sides panel comes from the confirmations, so it has
+    to move when one is entered -- and keep moving. Held as a reference from
+    page load, the panel detaches on the first refresh and every confirmation
+    after that updates a copy nobody can see."""
+    url, _, vehicle_pk = site
+    page.goto(f"{url}/vehicles/{vehicle_pk}")
+    marks = page.locator("select[data-mark]")
+    assert marks.count() >= 3, "no passes to confirm"
+
+    for index, side in enumerate(("left", "right", "left")):
+        marks.nth(index).select_option(side)
+        page.wait_for_timeout(250)
+    page.wait_for_timeout(400)
+
+    panel = page.locator("#sides-panel")
+    assert "3 confirmed passes" in panel.inner_text()
+
+
+def test_a_confirmation_survives_a_reload(site, page):
+    url, _, vehicle_pk = site
+    page.goto(f"{url}/vehicles/{vehicle_pk}")
+    first = page.locator("select[data-mark]").first
+    first.select_option("right")
+    page.wait_for_timeout(400)
+
+    page.reload()
+    assert page.locator("select[data-mark]").first.input_value() == "right"
+
+
+def test_labelling_a_wheel_leaves_no_stale_reading_of_it(site, page):
+    """A wheel label rewrites the badge beside the sensor and every direction
+    cell below. Saved in place, it left the page contradicting itself: a picker
+    reading R over a badge reading L and pills computed from the old labels."""
+    url, _, vehicle_pk = site
+    page.goto(f"{url}/vehicles/{vehicle_pk}")
+    picker = page.locator("select.wheel-picker[id^=wheel-]").first
+    field = picker.get_attribute("id")
+
+    picker.select_option("spare")
+    page.wait_for_load_state("networkidle")
+    page.wait_for_timeout(300)
+
+    assert page.locator("#" + field).input_value() == "spare"
+    # The invariant that broke: every row's badge says what its picker says.
+    for row in page.locator("tr:has(select.wheel-picker)").all():
+        chosen = row.locator("select.wheel-picker").input_value()
+        badge = row.locator("[data-wheel-slot] .pill.wheel-label")
+        shown = badge.first.inner_text() if badge.count() else ""
+        assert shown == chosen, f"badge {shown!r} against picker {chosen!r}"
