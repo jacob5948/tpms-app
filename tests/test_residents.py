@@ -96,6 +96,42 @@ def test_the_ui_and_the_clusterer_agree_on_what_resident_means(tmp_path):
     assert from_ui == from_clusterer == {"PMV-107J/0104db9c"}
 
 
+# -- filtering from traffic views -----------------------------------------
+
+def test_heard_now_excludes_residents_by_default(tmp_path):
+    svc = Service(Config(database=str(tmp_path / "h.db")), start_radio=False)
+    _resident(svc.ingestor)
+    _drive_by(svc.ingestor, "6ccfcf63", at=1_043_100)
+
+    included = q.heard_now(svc.db, include_residents=True)
+    excluded = q.heard_now(svc.db, include_residents=False)
+    assert len(included) > len(excluded)
+    assert all(r["display"] != "PMV-107J/0104db9c" for r in excluded)
+
+
+def test_events_exclude_residents_when_asked(tmp_path):
+    svc = Service(Config(database=str(tmp_path / "e.db")), start_radio=False)
+    _resident(svc.ingestor)
+    _drive_by(svc.ingestor, "6ccfcf63")
+
+    with_residents = q.events(svc.db, include_residents=True)
+    without = q.events(svc.db, include_residents=False)
+    assert len(with_residents) > len(without)
+    resident_displays = {r["display"] for r in without}
+    assert "PMV-107J/0104db9c" not in resident_displays
+
+
+def test_activity_excludes_residents_when_asked(tmp_path):
+    svc = Service(Config(database=str(tmp_path / "a.db")), start_radio=False)
+    _resident(svc.ingestor)
+
+    with_r = q.activity(svc.db, include_residents=True)
+    without = q.activity(svc.db, include_residents=False)
+    total_with = sum(p["readings"] for p in with_r["points"])
+    total_without = sum(p["readings"] for p in without["points"])
+    assert total_with > total_without
+
+
 # -- saturation -----------------------------------------------------------
 
 def _levels(svc, count, hot, rssi_hot=-0.4, rssi_ok=-9.0):

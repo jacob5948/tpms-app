@@ -428,7 +428,11 @@ def alias_groups(db: Database) -> list[dict[str, Any]]:
     ]
 
 
-def heard_now(db: Database, include_ignored: bool = False) -> list[dict[str, Any]]:
+def heard_now(
+    db: Database,
+    include_ignored: bool = False,
+    include_residents: bool = True,
+) -> list[dict[str, Any]]:
     """Sensors with a sighting still open, newest first.
 
     Duplicate decodes are folded away, as everywhere else: listing them would
@@ -437,12 +441,15 @@ def heard_now(db: Database, include_ignored: bool = False) -> list[dict[str, Any
     burst, so the canonical one is audible whenever its duplicate is.
     """
     names = {v.pk: v.display for v in db.list_vehicles()}
+    residents = resident_pks(db) if not include_residents else set()
     out = []
     for sighting in db.list_open_sightings():
         sensor = db.get_sensor(sighting.sensor_pk)
         if sensor is None or sensor.alias_of is not None:
             continue
         if sensor.ignored and not include_ignored:
+            continue
+        if sensor.pk in residents:
             continue
         # Carry the same reading fields the rest of the UI shows, so "heard
         # now" is not the one table where pressure and band are missing.
@@ -474,7 +481,9 @@ def heard_now(db: Database, include_ignored: bool = False) -> list[dict[str, Any
     return out
 
 
-def heard_now_groups(db: Database) -> dict[str, Any]:
+def heard_now_groups(
+    db: Database, include_residents: bool = True,
+) -> dict[str, Any]:
     """What is audible, gathered the way the log gathers it.
 
     One entry per vehicle rather than one per wheel, with unassigned sensors
@@ -483,7 +492,7 @@ def heard_now_groups(db: Database) -> dict[str, Any]:
     exactly the confusion this page exists to resolve when you are matching a
     car you can see to what the receiver is hearing.
     """
-    rows = heard_now(db)
+    rows = heard_now(db, include_residents=include_residents)
     vehicles: dict[int, dict[str, Any]] = {}
     loose: list[dict[str, Any]] = []
     for row in rows:
@@ -529,6 +538,7 @@ def _sighting_filters(
     vehicle_id: int | None,
     sensor_pk: int | None,
     include_ignored: bool,
+    exclude_pks: set[int] | None = None,
 ) -> tuple[str, list[Any]]:
     """The WHERE shared by the sighting log, the pass log and their counts.
 
@@ -552,6 +562,10 @@ def _sighting_filters(
         params.append(sensor_pk)
     if not include_ignored:
         clauses.append("n.ignored = 0")
+    if exclude_pks:
+        placeholders = ",".join("?" for _ in exclude_pks)
+        clauses.append(f"n.pk NOT IN ({placeholders})")
+        params.extend(sorted(exclude_pks))
     return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
 
 
@@ -562,9 +576,13 @@ def count_events(
     vehicle_id: int | None = None,
     sensor_pk: int | None = None,
     include_ignored: bool = False,
+    include_residents: bool = True,
 ) -> int:
     """How many sightings match, so a truncated page can say so."""
-    where, params = _sighting_filters(start, end, vehicle_id, sensor_pk, include_ignored)
+    exclude = resident_pks(db) if not include_residents else None
+    where, params = _sighting_filters(
+        start, end, vehicle_id, sensor_pk, include_ignored, exclude_pks=exclude,
+    )
     row = db.query_one(
         f"""
         SELECT COUNT(*) AS n
@@ -585,6 +603,7 @@ def events(
     limit: int = 500,
     sensor_pk: int | None = None,
     include_ignored: bool = False,
+    include_residents: bool = True,
 ) -> list[dict[str, Any]]:
     """Flat appear / last-heard log, one row per sensor sighting.
 
@@ -593,7 +612,10 @@ def events(
     watched go past to the transmitters heard at that moment is done against
     these rows, not against the merged summary.
     """
-    where, params = _sighting_filters(start, end, vehicle_id, sensor_pk, include_ignored)
+    exclude = resident_pks(db) if not include_residents else None
+    where, params = _sighting_filters(
+        start, end, vehicle_id, sensor_pk, include_ignored, exclude_pks=exclude,
+    )
     params.append(limit)
 
     rows = db.query(
@@ -647,6 +669,7 @@ def vehicle_passes(
     scan_limit: int = 20000,
     include_ignored: bool = False,
     rssi_margin: float = 6.0,
+    include_residents: bool = True,
 ) -> list[dict[str, Any]]:
     """The traffic log: one row per vehicle going past, newest first.
 
@@ -657,8 +680,9 @@ def vehicle_passes(
     A sensor with no vehicle still gets a pass of its own, so unclustered
     wheels are not left out of the traffic count.
     """
+    exclude = resident_pks(db) if not include_residents else None
     where, params = _sighting_filters(
-        start, end, vehicle_id, sensor_pk, include_ignored
+        start, end, vehicle_id, sensor_pk, include_ignored, exclude_pks=exclude,
     )
     params.append(scan_limit)
     rows = db.query(
@@ -850,6 +874,7 @@ def activity(
     start: float | None = None,
     end: float | None = None,
     buckets: int = 96,
+    include_residents: bool = True,
 ) -> dict[str, Any]:
     """How busy the receiver has been, bucketed over a window.
 
@@ -871,6 +896,15 @@ def activity(
     buckets = max(2, min(int(buckets), 500))
     width = (end - start) / buckets
 
+    exclude = resident_pks(db) if not include_residents else set()
+    if exclude:
+        ph = ",".join("?" for _ in exclude)
+        extra = f" AND s.pk NOT IN ({ph})"
+        extra_params = tuple(sorted(exclude))
+    else:
+        extra = ""
+        extra_params = ()
+
     counts = {
         int(r["b"]): (int(r["readings"]), int(r["sensors"]))
         for r in db.query(
@@ -878,8 +912,8 @@ def activity(
             # Duplicate decodes are one transmitter, not two.
             "COUNT(DISTINCT COALESCE(s.alias_of, s.pk)) AS sensors "
             "FROM readings r JOIN sensors s ON s.pk = r.sensor_pk "
-            "WHERE s.ignored = 0 AND r.ts >= ? AND r.ts < ? GROUP BY b",
-            (start, width, start, end),
+            "WHERE s.ignored = 0" + extra + " AND r.ts >= ? AND r.ts < ? GROUP BY b",
+            (start, width) + extra_params + (start, end),
         )
     }
     passes = {
@@ -887,10 +921,10 @@ def activity(
         for r in db.query(
             "SELECT CAST((g.started_at - ?) / ? AS INTEGER) AS b, COUNT(*) AS passes "
             "FROM sightings g JOIN sensors s ON s.pk = g.sensor_pk "
-            "WHERE s.alias_of IS NULL AND s.ignored = 0 "
-            "AND g.started_at >= ? AND g.started_at < ? "
+            "WHERE s.alias_of IS NULL AND s.ignored = 0" + extra +
+            " AND g.started_at >= ? AND g.started_at < ? "
             "GROUP BY b",
-            (start, width, start, end),
+            (start, width) + extra_params + (start, end),
         )
     }
 

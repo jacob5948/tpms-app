@@ -416,6 +416,8 @@ table.inner th { color: var(--muted); font-weight: 500; }
 .head-row h2 { flex: 1; }
 a.quiet { font-size: 13px; color: var(--muted); }
 a.quiet:hover { color: var(--accent); }
+.toggle-label { font-size: 13px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.toggle-label input { vertical-align: -1px; margin-right: 4px; }
 
 /* Everything that acts on a set of ticked rows, gathered under the set --
    and inside the same panel, as its footer. Rendered as a sibling of the

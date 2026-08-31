@@ -2,7 +2,8 @@
 {% import "_macros.html" as m %}
 {% block title %}Log &middot; TPMS{% endblock %}
 {% block body %}
-{% set qs %}since={{ filters.since }}&until={{ filters.until }}&vehicle={{ filters.vehicle or '' }}&sensor={{ filters.sensor or '' }}{% endset %}
+{% set rqs = '&residents=1' if show_residents else '' %}
+{% set qs %}since={{ filters.since }}&until={{ filters.until }}&vehicle={{ filters.vehicle or '' }}&sensor={{ filters.sensor or '' }}{{ rqs }}{% endset %}
 
 <div class="page-head">
   <div>
@@ -49,6 +50,9 @@
       <option value="{{ v.pk }}" {{ 'selected' if v.pk == filters.vehicle }}>{{ v.display }}</option>
       {% endfor %}
     </select>
+    <label class="toggle-label">
+      <input type="checkbox" name="residents" value="1"{{ ' checked' if show_residents }}> Show residents
+    </label>
     <button class="primary" type="submit">Filter</button>
     <a class="btn" href="/events?view={{ view }}">Reset</a>
     <span class="spacer"></span>
@@ -60,10 +64,10 @@
     <span class="k">Quick range</span>
     {% for label, value in [('1h', '1h'), ('24h', '24h'), ('7d', '7d'), ('30d', '30d')] %}
     <a class="chip {{ 'active' if filters.since == value }}"
-       href="/events?view={{ view }}&amp;since={{ value }}&amp;vehicle={{ filters.vehicle or '' }}&amp;sensor={{ filters.sensor or '' }}">{{ label }}</a>
+       href="/events?view={{ view }}&amp;since={{ value }}&amp;vehicle={{ filters.vehicle or '' }}&amp;sensor={{ filters.sensor or '' }}{{ rqs }}">{{ label }}</a>
     {% endfor %}
     <a class="chip {{ 'active' if not filters.since }}"
-       href="/events?view={{ view }}&amp;vehicle={{ filters.vehicle or '' }}&amp;sensor={{ filters.sensor or '' }}">all</a>
+       href="/events?view={{ view }}&amp;vehicle={{ filters.vehicle or '' }}&amp;sensor={{ filters.sensor or '' }}{{ rqs }}">all</a>
   </div>
 </div>
 

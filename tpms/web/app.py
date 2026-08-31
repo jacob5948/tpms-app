@@ -222,14 +222,16 @@ def create_app(service: Service) -> FastAPI:
     # -- pages ------------------------------------------------------------
 
     @app.get("/", response_class=HTMLResponse)
-    def live(request: Request):
+    def live(request: Request, residents: str | None = None):
+        show_residents = residents == "1"
         return page(
             request,
             "live.html",
-            heard=q.heard_now_groups(db),
+            heard=q.heard_now_groups(db, include_residents=show_residents),
             gap=gap(),
             now=now_ts(),
             vehicles=_vehicle_choices(),
+            show_residents=show_residents,
         )
 
     @app.get("/vehicles", response_class=HTMLResponse)
@@ -342,6 +344,7 @@ def create_app(service: Service) -> FastAPI:
         sensor: OptionalId = None,
         view: str = "passes",
         limit: int = 1000,
+        residents: str | None = None,
     ):
         """The traffic log, as vehicle passes or as raw sensor sightings.
 
@@ -353,13 +356,14 @@ def create_app(service: Service) -> FastAPI:
         view = view if view in ("passes", "sightings") else "passes"
         limit = max(10, min(int(limit), 5000))
         start, end = _when("since", since), _when("until", until)
+        show_residents = residents == "1"
         # Asking for one sensor by name overrides hiding it: hidden sensors
         # are kept out of the lists, not out of a direct query. The link here
         # comes from the sensor's own page.
         seeing_hidden = sensor is not None
         total = q.count_events(
             db, start=start, end=end, vehicle_id=vehicle, sensor_pk=sensor,
-            include_ignored=seeing_hidden,
+            include_ignored=seeing_hidden, include_residents=show_residents,
         )
 
         if view == "passes":
@@ -367,12 +371,14 @@ def create_app(service: Service) -> FastAPI:
                 db, gap(), start=start, end=end, vehicle_id=vehicle,
                 sensor_pk=sensor, limit=limit, scan_limit=PASS_SCAN_LIMIT,
                 include_ignored=seeing_hidden, rssi_margin=rssi_margin(),
+                include_residents=show_residents,
             )
             truncated = total > PASS_SCAN_LIMIT or len(rows) == limit
         else:
             rows = q.events(
                 db, start=start, end=end, vehicle_id=vehicle,
                 sensor_pk=sensor, limit=limit, include_ignored=seeing_hidden,
+                include_residents=show_residents,
             )
             truncated = total > len(rows)
 
@@ -387,6 +393,7 @@ def create_app(service: Service) -> FastAPI:
             limit=limit,
             vehicles=_vehicle_choices(),
             focus_sensor=focus or None,
+            show_residents=show_residents,
             filters={
                 "since": since or "",
                 "until": until or "",
@@ -563,19 +570,30 @@ def create_app(service: Service) -> FastAPI:
         )
 
     @app.get("/api/heard-now.html", response_class=HTMLResponse)
-    def api_heard_now_html(request: Request):
+    def api_heard_now_html(request: Request, residents: str | None = None):
         """The 'heard now' panel alone, for the Live page to swap in place."""
+        show_residents = residents == "1"
         return templates.TemplateResponse(
             request,
             "_heard.html",
-            {"heard": q.heard_now_groups(db), "vehicles": _vehicle_choices()},
+            {
+                "heard": q.heard_now_groups(db, include_residents=show_residents),
+                "vehicles": _vehicle_choices(),
+            },
         )
 
     @app.get("/api/heard-now")
-    def api_heard_now():
-        # The flat list, for anything reading this as data rather than
-        # rendering the page's grouping.
-        return {"heard": q.heard_now(db), "gap": gap(), "now": now_ts()}
+    def api_heard_now(residents: str | None = None):
+        show_residents = residents == "1"
+        return {
+            "heard": q.heard_now(db, include_residents=show_residents),
+            "gap": gap(),
+            "now": now_ts(),
+        }
+
+    @app.get("/api/residents")
+    def api_residents():
+        return {"pks": sorted(q.resident_pks(db))}
 
     @app.get("/api/status")
     def api_status():
@@ -590,9 +608,12 @@ def create_app(service: Service) -> FastAPI:
         return _when("since", since), _when("until", until)
 
     @app.get("/api/activity")
-    def api_activity(since: str | None = None, until: str | None = None, buckets: int = 96):
+    def api_activity(
+        since: str | None = None, until: str | None = None,
+        buckets: int = 96, residents: str | None = None,
+    ):
         start, end = _window(since, until)
-        return q.activity(db, start, end, buckets)
+        return q.activity(db, start, end, buckets, include_residents=residents == "1")
 
     @app.get("/api/sensors/{sensor_pk}/history")
     def api_sensor_history(
@@ -1005,6 +1026,7 @@ def create_app(service: Service) -> FastAPI:
         vehicle: OptionalId = None,
         sensor: OptionalId = None,
         view: str = "passes",
+        residents: str | None = None,
     ):
         """The log as a file, in whichever shape the page is showing.
 
@@ -1013,6 +1035,7 @@ def create_app(service: Service) -> FastAPI:
         """
         view = view if view in ("passes", "sightings") else "passes"
         start, end = _when("since", since), _when("until", until)
+        show_residents = residents == "1"
         seeing_hidden = sensor is not None
         buffer = io.StringIO()
         writer = csv.writer(buffer)
@@ -1027,6 +1050,7 @@ def create_app(service: Service) -> FastAPI:
                 db, gap(), start=start, end=end, vehicle_id=vehicle,
                 sensor_pk=sensor, limit=100000, scan_limit=1000000,
                 include_ignored=seeing_hidden, rssi_margin=rssi_margin(),
+                include_residents=show_residents,
             ):
                 writer.writerow(
                     [
@@ -1056,6 +1080,7 @@ def create_app(service: Service) -> FastAPI:
             for row in q.events(
                 db, start=start, end=end, vehicle_id=vehicle,
                 sensor_pk=sensor, limit=100000, include_ignored=seeing_hidden,
+                include_residents=show_residents,
             ):
                 writer.writerow(
                     [

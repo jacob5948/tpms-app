@@ -32,7 +32,13 @@
 
 <div class="head-row">
   <h2>Heard now</h2>
-  <a class="quiet" href="/events">Open the log &rarr;</a>
+  <span>
+    <label class="toggle-label">
+      <input type="checkbox" id="show-residents"{{ ' checked' if show_residents }}>
+      Show residents
+    </label>
+    <a class="quiet" href="/events">Open the log &rarr;</a>
+  </span>
 </div>
 <div class="panel" id="heard-panel" aria-live="polite" aria-label="Currently audible">
   {% include "_heard.html" %}
@@ -76,9 +82,30 @@ const activityBar = tpmsRangeBar(document.getElementById('activity-range'), {
   onRange: seconds => { activityRange = seconds; loadActivity(seconds); },
 });
 
+const showResidents = document.getElementById('show-residents');
+let residentPks = new Set();
+
+async function loadResidents() {
+  try {
+    const data = await (await fetch('/api/residents')).json();
+    residentPks = new Set(data.pks);
+  } catch (e) { /* keep the last known set */ }
+}
+loadResidents();
+setInterval(loadResidents, 120000);
+
+function residentsParam() {
+  return showResidents.checked ? '&residents=1' : '';
+}
+
+showResidents.addEventListener('change', () => {
+  loadActivity(activityRange);
+  refreshHeard();
+});
+
 async function loadActivity(seconds) {
   const since = seconds ? Math.round(seconds / 3600) + 'h' : null;
-  const url = '/api/activity?buckets=96' + (since ? '&since=' + since : '');
+  const url = '/api/activity?buckets=96' + (since ? '&since=' + since : '') + residentsParam();
   Object.values(activityCharts).forEach(c => c.setLoading(true));
   let data;
   try {
@@ -127,6 +154,7 @@ function esc(text) {
 
 window.onTpmsEvent = function (ev) {
   if (ev.type !== 'reading') return;
+  if (!showResidents.checked && residentPks.has(ev.sensor_pk)) return;
   document.getElementById('feed-placeholder')?.remove();
 
   const num = (v, d) => v == null ? '—' : v.toFixed(d);
@@ -169,7 +197,7 @@ function refreshHeard() {
     // out of the window. The refresh will come round again.
     if (panel.contains(document.activeElement)) return;
     try {
-      const html = await (await fetch('/api/heard-now.html')).text();
+      const html = await (await fetch('/api/heard-now.html?' + residentsParam().slice(1))).text();
       panel.innerHTML = html;
       window.initSortable(panel);   // the swapped-in table needs headers wired
     } catch (e) { /* the SSE pill already shows the connection state */ }

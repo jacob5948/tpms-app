@@ -221,6 +221,7 @@ class Ingestor:
                 # this was the only identity it had to work with.
                 "vehicle_name": vehicle.display if vehicle else None,
                 "wheel_label": sensor.wheel_label if sensor else None,
+                "ignored": bool(sensor and sensor.ignored),
                 # The feed is a raw packet log, so duplicate decodes belong in
                 # it -- but labelled, or they read as extra transmitters.
                 "duplicate": bool(sensor and sensor.alias_of),
