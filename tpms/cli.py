@@ -153,7 +153,8 @@ def cmd_aliases(args: argparse.Namespace) -> int:
         cfg = config.aliases
         print(f"thresholds: dt<={cfg.time_tolerance}s dRSSI<={cfg.rssi_tolerance} "
               f"dSNR<={cfg.snr_tolerance} min_ratio={cfg.min_share_ratio}")
-        print("\nevery cross-decoder pair heard within 10s, with real deltas:\n")
+        print("\nevery pair heard within 10s that could be one transmitter, "
+              "with real deltas:\n")
         rows = detector.explain()
         if not rows:
             print("  none -- no two decoders ever fired close together in time")
@@ -221,7 +222,10 @@ def cmd_diagnose(args: argparse.Namespace) -> int:
         names = ", ".join(sensors[pk].display for pk in sorted(residents))
         print(f"\nresident sensors:  {len(residents)} ({names})")
         print("  -> audible most of the time, so parked in range rather than passing.")
-        print("     They co-occur with all traffic and cannot seed a one-pass group.")
+        print("     They co-occur with all traffic, so their edges are kept only where")
+        print("     the pair also looks like one vehicle: shared decoder, near ids or")
+        print("     comparable signal. A parked car keeps its own wheels; the traffic")
+        print("     going past it does not join them.")
 
     rows = db.cooccurrence_rows()
     if not rows:
@@ -247,12 +251,27 @@ def cmd_diagnose(args: argparse.Namespace) -> int:
     print(f"\npairs heard together: {len(rows)} "
           f"({duplicates} of them duplicate decodes, ignored)")
 
-    profiles = clusterer._profiles() if cfg.single_pass else {}
+    # Not "if single_pass": shape now decides a resident's edges as well, so
+    # the explanation needs it whatever the mode.
+    profiles = clusterer._profiles()
     print("\nclosest real pairs to becoming a vehicle:")
     for count, support, a, b in scored[: args.limit]:
-        if count >= cfg.min_cooccurrences and support >= cfg.min_support:
+        # In the same order build_edges applies them, or this reports a pairing
+        # the clusterer would refuse. It said "GROUPED (confirmed)" against
+        # every resident's edge for as long as the guard was in the wrong
+        # branch, which is why the 223-sensor cluster looked well-evidenced.
+        if (a in residents or b in residents) and not clusterer._same_vehicle_shape(
+            a, b, profiles
+        ):
+            verdict = "dropped -- resident, audible while everything passes"
+        elif count >= cfg.min_cooccurrences and support >= cfg.min_support:
             verdict = "GROUPED (confirmed)"
-        elif cfg.single_pass and clusterer._same_vehicle_shape(a, b, profiles):
+        elif (
+            cfg.single_pass
+            and a not in residents
+            and b not in residents
+            and clusterer._same_vehicle_shape(a, b, profiles)
+        ):
             verdict = "GROUPED (provisional -- one pass only)"
         else:
             reasons = []
@@ -359,6 +378,29 @@ def cmd_ids(args: argparse.Namespace) -> int:
     if noise is not None:
         print(f"  ...of which ID-near:  {card.apart_near} ({noise:.1%})  <- want this low")
     print(f"\nverdict: {card.verdict()}")
+
+    if args.sweep:
+        # The question "is 65536 the right number?" is one the capture can
+        # answer, and could not be asked without editing the config and
+        # re-running. Recall is measured against confirmed co-occurrence, so
+        # it is only as good as that sample -- the verdict line says when it
+        # is too small to quote.
+        print("\nthe same measurement at other distances:")
+        print(f"  {'distance':>10}  {'recall':>7}  {'false pos':>9}  wheel sets")
+        for distance in (1 << shift for shift in range(8, 21, 2)):
+            other = idfamily.evaluate(db, config.clustering, distance)
+            recall = "n/a" if other.recall is None else f"{other.recall:.0%}"
+            noise = (
+                "n/a" if other.false_positive_rate is None
+                else f"{other.false_positive_rate:.1%}"
+            )
+            mark = "  <- configured" if distance == max_distance else ""
+            print(f"  {distance:>10}  {recall:>7}  {noise:>9}  "
+                  f"{len(other.families):>10}{mark}")
+        print("\n  Want recall high and false positives near zero. Where both "
+              "hold over a\n  range of distances, take the low end: the widest "
+              "genuine pair measured\n  in the field was 10042 apart, and every "
+              "doubling past that buys nothing\n  but coincidences.")
 
     if args.explain:
         print("\nper-pair detail:")
@@ -578,6 +620,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ids.add_argument(
         "--explain", action="store_true", help="show every same-decoder pair's distance"
+    )
+    ids.add_argument(
+        "--sweep",
+        action="store_true",
+        help="score several id distances, to choose clustering.id_max_distance",
     )
     ids.set_defaults(func=cmd_ids)
 

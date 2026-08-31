@@ -160,6 +160,9 @@ class AliasConfig:
     #: Only ever treat *different* decoders as duplicates. Wheels on one car
     #: share an OEM sensor type, so a same-decoder pair is a real pair of
     #: sensors, never one sensor seen twice.
+    #: One exception, always in force: same decoder, same burst, and ids that
+    #: differ only in a leading digit is one transmitter read two ways, not two
+    #: sensors. See ``aliases._SAME_TRANSMITTER_ID``.
     require_different_decoder: bool = True
     #: Identical-signal bursts needed before two sensors are called duplicates.
     #: One is enough: matching RSSI *and* SNR at the same instant is already a
@@ -427,7 +430,9 @@ FIELD_HELP: dict[str, str] = {
     "aliases.snr_tolerance": "Signal-to-noise apart, likewise.",
     "aliases.require_different_decoder": (
         "Only fold together decodes from different protocols. Two readings "
-        "from one decoder at one instant are two transmitters, not one."
+        "from one decoder at one instant are two transmitters, not one -- "
+        "unless their ids differ in nothing but the leading digit, which is "
+        "one transmitter the decoder read two ways."
     ),
     "aliases.min_shared_bursts": "Coincidences before two sensors are called aliases.",
     "aliases.min_share_ratio": "Share of the rarer sensor's readings that must coincide.",

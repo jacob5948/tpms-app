@@ -69,6 +69,33 @@ def common_hex_run(a: str, b: str, minimum: int = 4) -> str:
     return best if len(best) >= minimum else ""
 
 
+#: Same decoder, same burst, and ids that differ only in their leading
+#: character. From a real capture: Toyota/d157cd57 and Toyota/f157cd57,
+#: Toyota/d157ca8a and Toyota/f157ca8a, Toyota/d18d99b0 and Toyota/f18d99b0.
+#:
+#: `require_different_decoder` exists because two wheels on one car share an
+#: OEM sensor type, so a same-decoder pair is normally a real pair of sensors.
+#: These are the exception it did not foresee -- one decoder reading one burst
+#: two ways, differing in a top nibble that is evidently not part of the id --
+#: and because nothing could ever fold them, they co-occurred perfectly for
+#: ever and confirmed their way into whatever vehicle stood beside them.
+#:
+#: Only the *leading* character may differ. Wheels programmed as a set differ
+#: in their low digits (d39abf13 / d39abf5a), so a rule that allowed a trailing
+#: difference would fold a whole car into one sensor.
+_SAME_TRANSMITTER_ID = (
+    "LENGTH(sa.sensor_id) = LENGTH(sb.sensor_id)"
+    " AND LENGTH(sa.sensor_id) > 4"
+    " AND SUBSTR(LOWER(sa.sensor_id), 2) = SUBSTR(LOWER(sb.sensor_id), 2)"
+)
+
+
+def one_leading_digit_apart(a: str, b: str, minimum: int = 4) -> bool:
+    """The Python twin of ``_SAME_TRANSMITTER_ID``, for callers not in SQL."""
+    a, b = a.lower(), b.lower()
+    return len(a) == len(b) and len(a) > minimum and a[0] != b[0] and a[1:] == b[1:]
+
+
 class AliasDetector:
     def __init__(self, db: Database, config: AliasConfig | None = None):
         self.db = db
@@ -77,7 +104,11 @@ class AliasDetector:
     def find_pairs(self) -> list[AliasPair]:
         """Sensor pairs that keep decoding the very same bursts."""
         cfg = self.config
-        decoder_clause = "AND sa.model != sb.model" if cfg.require_different_decoder else ""
+        decoder_clause = (
+            f"AND (sa.model != sb.model OR ({_SAME_TRANSMITTER_ID}))"
+            if cfg.require_different_decoder
+            else ""
+        )
         rows = self.db.query(
             f"""
             SELECT a.sensor_pk AS a, b.sensor_pk AS b, COUNT(*) AS shared,
@@ -133,7 +164,12 @@ class AliasDetector:
         return pairs
 
     def explain(self, window: float = 10.0) -> list[dict]:
-        """Why each cross-decoder pair did or did not match.
+        """Why each candidate pair did or did not match.
+
+        "Candidate" is every cross-decoder pair, plus the same-decoder pairs
+        whose ids differ only in a leading digit -- see
+        ``_SAME_TRANSMITTER_ID``. The blind spot was invisible here as well as
+        in the detector, which is most of why it went unnoticed for so long.
 
         Reports the deltas actually present in the data rather than assuming
         what they ought to be -- the thresholds are guesses until measured
@@ -155,7 +191,7 @@ class AliasDetector:
                AND b.ts BETWEEN a.ts - ? AND a.ts + ?
               JOIN sensors sa ON sa.pk = a.sensor_pk
               JOIN sensors sb ON sb.pk = b.sensor_pk
-             WHERE sa.model != sb.model
+             WHERE (sa.model != sb.model OR (LENGTH(sa.sensor_id) = LENGTH(sb.sensor_id) AND LENGTH(sa.sensor_id) > 4 AND SUBSTR(LOWER(sa.sensor_id), 2) = SUBSTR(LOWER(sb.sensor_id), 2)))
              GROUP BY a.sensor_pk, b.sensor_pk
              ORDER BY dt
             """,

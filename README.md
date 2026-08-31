@@ -226,10 +226,21 @@ something. Set `clustering.id_adjacency: false` if it does not hold up for you.
 A sensor parked within range behaves nothing like passing traffic: on a real
 capture two had been continuously audible for over ten hours while everything
 else was heard for a minute or two. Because a resident is audible while *every*
-car drives past, a single shared moment says nothing about them belonging
-together — so residents are marked with a `resident` badge and are not allowed
-to seed a one-pass grouping. Repeated co-occurrence still counts, since that is
-real evidence. Naming one pins it out of the clusterer's way entirely.
+car drives past, being heard together says nothing about them belonging
+together — so residents are marked with a `resident` badge and every edge one
+of them is part of must also *look* like one vehicle: a shared decoder, and a
+neighbouring ID or a comparable signal level.
+
+Repetition does not rescue such a pair, which is what this rule was got wrong
+about at first. A pair is counted once per shared sighting, so a resident
+scores one vote per passing car while support divides by that car's own two or
+three sightings: three cars in an afternoon is `n=3` at support `1.00`, a
+confirmed edge. With the guard covering only one-pass groupings, twelve parked
+transmitters held 223 sensors from six decoders in a single cluster.
+
+Shape rather than a ban, because a parked car's own wheels are residents too
+and co-occurrence is the only evidence they will ever offer. Naming one pins it
+out of the clusterer's way entirely.
 
 Detection is a duty cycle: the share of its observed window the sensor was
 audible, over at least `clustering.resident_min_span_seconds`. Passing traffic

@@ -77,6 +77,9 @@ aliases:
 
   # Only ever merge *different* decoders. Wheels on one car share an OEM
   # sensor type, so a same-decoder pair is two real sensors, never one twice.
+  # One exception is always in force: ids differing in nothing but their
+  # leading digit (Toyota/d157cd57 and Toyota/f157cd57) are one transmitter
+  # the decoder read two ways, and are folded whatever this says.
   require_different_decoder: true
 
   min_shared_bursts: 1

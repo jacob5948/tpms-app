@@ -107,15 +107,19 @@ class Clusterer:
     def __init__(self, db: Database, config: ClusterConfig | None = None):
         self.db = db
         self.config = config or ClusterConfig()
+        self._ids: dict[int, tuple[str, int]] | None = None
 
     # -- graph ------------------------------------------------------------
 
     def build_edges(self, eligible: set[int] | None = None) -> list[Edge]:
         """Co-occurrence pairs strong enough to imply a shared vehicle."""
         counts = self.db.sighting_counts()
-        profiles = self._profiles() if self.config.single_pass else {}
-        self._ids = self._parsed_ids() if self.config.single_pass else {}
-        residents = self.residents() if self.config.single_pass else set()
+        # Built whether or not single-pass grouping is on, because a resident's
+        # edges are now judged on shape too. These were once built only for the
+        # single-pass branch, which is how the resident guard came to cover
+        # half the cases it was written for.
+        profiles = self._profiles()
+        residents = self.residents()
         edges: list[Edge] = []
 
         for row in self.db.cooccurrence_rows():
@@ -131,14 +135,35 @@ class Clusterer:
             denominator = min(counts.get(a, 0), counts.get(b, 0))
             support = min(count / denominator, 1.0) if denominator else 0.0
 
+            # A sensor parked in range is audible while every passing car goes
+            # by, so being heard together says nothing about them travelling
+            # together -- and that does not improve with repetition. It gets
+            # *worse*: the pair is counted once per shared sighting, so a
+            # resident scores one vote per passing car and support divides by
+            # the passer's own handful of sightings. Three cars in an afternoon
+            # is n=3 at support 1.00, which is a confirmed edge.
+            #
+            # This guard used to sit in the single-pass branch alone, so a
+            # resident could not *seed* a one-pass grouping but could confirm
+            # its way into anything. On a real capture that produced one
+            # component of 223 sensors across six decoders, held together by
+            # twelve parked transmitters.
+            #
+            # Shape, not a blanket ban: a parked car's own wheels are residents
+            # too, and co-occurrence is the only evidence they will ever offer.
+            # A shared decoder and a neighbouring id still groups those; a Ford,
+            # a Toyota and a Denso heard together all afternoon do not.
+            if (a in residents or b in residents) and not self._same_vehicle_shape(
+                a, b, profiles
+            ):
+                continue
+
             if count >= self.config.min_cooccurrences and support >= self.config.min_support:
                 edges.append(Edge(a=a, b=b, count=count, support=support))
             elif (
                 self.config.single_pass
-                # A sensor parked in range is audible while every passing car
-                # goes by, so a single shared window says nothing about them
-                # belonging together. Repeat co-occurrence still counts, which
-                # is why this only guards the single-pass branch.
+                # One shared window is not enough for a resident even when the
+                # shape matches: it is audible during every window there is.
                 and a not in residents
                 and b not in residents
                 and self._same_vehicle_shape(a, b, profiles)
@@ -161,18 +186,27 @@ class Clusterer:
             if span >= cfg.resident_min_span_seconds and duty >= cfg.resident_duty_cycle
         }
 
-    def _parsed_ids(self) -> dict[int, tuple[str, int]]:
-        """Sensor ids as numbers, for the adjacency test."""
-        if not self.config.id_adjacency:
-            return {}
-        return idfamily._parsed(self.db.list_sensors())
+    def _id_map(self) -> dict[int, tuple[str, int]]:
+        """Sensor ids as numbers, for the adjacency test. Built once.
+
+        Read through a method rather than an attribute that ``build_edges``
+        happened to set on the way past: ``_same_vehicle_shape`` is also called
+        from ``tpms diagnose``, which does not call ``build_edges`` first and so
+        judged every pair with no id information at all -- silently, because a
+        missing map is indistinguishable from "no ids parsed".
+        """
+        if self._ids is None:
+            self._ids = (
+                idfamily._parsed(self.db.list_sensors())
+                if self.config.id_adjacency
+                else {}
+            )
+        return self._ids
 
     def _ids_adjacent(self, a: int, b: int) -> bool:
         if not self.config.id_adjacency:
             return False
-        return idfamily.are_near(
-            getattr(self, "_ids", {}), a, b, self.config.id_max_distance
-        )
+        return idfamily.are_near(self._id_map(), a, b, self.config.id_max_distance)
 
     def _profiles(self) -> dict[int, tuple[set[str], float | None]]:
         """Decoders that produced each sensor, and its mean signal level.
@@ -240,9 +274,7 @@ class Clusterer:
         """
         if not self.config.id_adjacency or len(members) < 3:
             return False
-        parsed = getattr(self, "_ids", None)
-        if not parsed:
-            parsed = self._parsed_ids()
+        parsed = self._id_map()
         known = [m for m in members if m in parsed]
         if len(known) < 3:
             return False

@@ -278,3 +278,43 @@ def test_three_decoders_of_one_burst_collapse_to_one(ingestor, db):
            [("Renault", "a1cbaf"), ("Jansite", "3041aaa"), ("Hyundai-VDO", "41aaafcb")])
     AliasDetector(db).run()
     assert len(_canonical(db)) == 1
+
+
+# -- the same-decoder blind spot --------------------------------------------
+
+
+def test_one_decoder_reading_one_burst_two_ways_is_one_sensor(ingestor, db):
+    """From a real capture: Toyota/d157cd57 and Toyota/f157cd57, seven hex
+    digits identical, arriving in the same burst at the same level.
+
+    `require_different_decoder` was written for wheels, which share an OEM
+    sensor type -- it did not foresee one decoder reading one burst two ways.
+    Nothing could ever fold these, so they co-occurred perfectly for ever and
+    confirmed their way into whatever vehicle stood beside them.
+    """
+    for tick in range(4):
+        _burst(ingestor, f"2026-08-26 02:27:3{tick}", -8.1, 12.3,
+               [("Toyota-TPMS", "d157cd57"), ("Toyota-TPMS", "f157cd57")])
+    AliasDetector(db).run()
+    assert len(_canonical(db)) == 1
+
+
+def test_wheels_of_one_car_still_survive_that_rule(ingestor, db):
+    """The guard on the guard. Wheels programmed as a set differ in their
+    *low* digits, so only a leading difference may fold -- otherwise one rule
+    for phantoms would collapse a whole car into one sensor."""
+    for tick, sensor_id in enumerate(("d39abf13", "d39abf5a", "d39abf14")):
+        _burst(ingestor, f"2026-08-26 02:27:3{tick}", -8.1, 12.3,
+               [("Toyota-TPMS", sensor_id)])
+    AliasDetector(db).run()
+    assert len(_canonical(db)) == 3
+
+
+def test_the_explainer_shows_the_pairs_the_detector_now_considers(ingestor, db):
+    """A blind spot invisible in the diagnostics is a blind spot twice."""
+    _burst(ingestor, "2026-08-26 02:27:37", -8.1, 12.3,
+           [("Toyota-TPMS", "d157cd57"), ("Toyota-TPMS", "f157cd57")])
+    rows = AliasDetector(db).explain()
+    assert [(r["a"], r["b"]) for r in rows] == [
+        ("Toyota-TPMS/d157cd57", "Toyota-TPMS/f157cd57")
+    ]

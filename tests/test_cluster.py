@@ -238,3 +238,72 @@ def test_one_family_is_not_flagged(ingestor, db):
     report = Clusterer(db).run()
     assert not report.mixed_families
     assert not [v for v in db.list_vehicles() if v.needs_review]
+
+
+# -- the resident glue ------------------------------------------------------
+
+
+def _parked(ingestor, model, ids, start, stays=4, hours=1, every=60):
+    """A transmitter parked in range: audible for hours at a stretch.
+
+    In stays rather than one unbroken block, because that is what the real
+    ones do -- the car is driven now and then -- and because co-occurrence is
+    counted once per shared sighting, so an object that never goes quiet only
+    ever votes once. Four stays is what makes these edges *confirmed*, which
+    is the case that mattered.
+    """
+    for stay in range(stays):
+        opened = start + stay * (hours * 3600 + 1800)
+        for tick in range(int(hours * 3600 / every)):
+            for index, sensor_id in enumerate(ids):
+                ingestor.ingest(
+                    Reading(model=model, sensor_id=sensor_id,
+                            ts=opened + tick * every + index * 0.4, rssi=-8.0)
+                )
+
+
+def test_a_resident_does_not_confirm_its_way_into_passing_traffic(ingestor, db):
+    """The 223-sensor cluster, in miniature.
+
+    A parked transmitter is audible while every car goes by, so it is heard
+    with each of them -- once per shared sighting, which is one vote per car,
+    divided by that car's own two or three sightings. That is support 1.00 and
+    a confirmed edge, however unrelated the two are. The guard used to sit in
+    the single-pass branch alone, so a resident could not seed a grouping but
+    could confirm its way into anything.
+    """
+    _parked(ingestor, "Ford-TPMS", ["36dca165", "36dcc7ee"], 10_000)
+    for i in range(4):
+        _pass(ingestor, "Toyota-TPMS", ["w1", "w2"], 11_000 + i * 5400)
+    ingestor.sweep(when=9e9)
+
+    clusterer = Clusterer(db)
+    assert clusterer.residents(), "the parked pair must read as resident"
+    clusterer.run()
+
+    groups = sorted(_groups(db).values())
+    assert ["36dca165", "36dcc7ee"] in groups, "the parked car keeps its wheels"
+    assert ["w1", "w2"] in groups, "the passing car is a vehicle of its own"
+    assert all(len(g) <= 2 for g in groups), f"a resident glued a cluster: {groups}"
+
+
+def test_a_parked_car_keeps_its_own_wheels(ingestor, db):
+    """Not a blanket ban: a parked car's wheels are all residents, and
+    co-occurrence is the only evidence they will ever offer. A shared decoder
+    and a neighbouring id is what separates them from the traffic."""
+    _parked(ingestor, "Toyota-TPMS", ["da10aa0e", "da10aa30", "da10aa34"], 10_000)
+    ingestor.sweep(when=9e9)
+    Clusterer(db).run()
+    assert list(_groups(db).values()) == [["da10aa0e", "da10aa30", "da10aa34"]]
+
+
+def test_residents_of_two_different_cars_do_not_merge(ingestor, db):
+    """Two cars parked in range are audible together all day, which says
+    nothing -- they are in the same car park, not on the same axle."""
+    _parked(ingestor, "Ford-TPMS", ["36dca165", "36dcc7ee"], 10_000)
+    _parked(ingestor, "Toyota-TPMS", ["da06e425", "da06e368"], 10_000)
+    ingestor.sweep(when=9e9)
+    Clusterer(db).run()
+    assert sorted(_groups(db).values()) == [
+        ["36dca165", "36dcc7ee"], ["da06e368", "da06e425"]
+    ]
