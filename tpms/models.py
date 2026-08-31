@@ -60,6 +60,11 @@ def display_timezone() -> tzinfo:
     return _display_tz
 
 
+def to_datetime_local(ts: float) -> str:
+    """Format epoch seconds as YYYY-MM-DDTHH:MM for datetime-local inputs."""
+    return datetime.fromtimestamp(ts, tz=_display_tz).strftime("%Y-%m-%dT%H:%M")
+
+
 # rtl_433 emits "2026-08-25 15:34:12" or, with -M time:usec, a fractional part.
 _TIME_FORMATS = ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S")
 

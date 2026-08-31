@@ -532,6 +532,112 @@ def heard_now_groups(
     return {"vehicles": out, "loose": loose, "count": len(rows)}
 
 
+def heard_at(db: Database, ts: float, tolerance: float = 30.0) -> dict[str, Any]:
+    """What was audible at an arbitrary moment, grouped by vehicle.
+
+    Same shape as ``heard_now_groups`` but evaluated against closed sightings
+    rather than open ones.  ``tolerance`` seconds of slack on the trailing
+    edge handles camera-to-receiver clock skew.
+    """
+    names = {v.pk: v.display for v in db.list_vehicles()}
+    rows = db.query(
+        """
+        SELECT s.pk, s.started_at, s.last_reading_at, s.ended_at, s.reading_count,
+               s.max_rssi, s.freq_mhz,
+               n.pk AS sensor_pk, n.model, n.sensor_id, n.wheel_label,
+               n.vehicle_id, v.name AS vehicle_name
+          FROM sightings s
+          JOIN sensors n ON n.pk = s.sensor_pk
+          LEFT JOIN vehicles v ON v.pk = n.vehicle_id
+         WHERE n.alias_of IS NULL AND n.ignored = 0
+           AND s.started_at <= ?
+           AND s.last_reading_at >= ?
+         ORDER BY s.max_rssi DESC
+        """,
+        (ts, ts - tolerance),
+    )
+
+    sensors: list[dict[str, Any]] = []
+    for r in rows:
+        latest = db.latest_reading(int(r["sensor_pk"]))
+        pressure = latest["pressure_kpa"] if latest else None
+        sensors.append(
+            {
+                "sensor_pk": int(r["sensor_pk"]),
+                "display": f"{r['model']}/{r['sensor_id']}",
+                "wheel_label": r["wheel_label"],
+                "pressure_kpa": pressure,
+                "pressure_psi": (pressure / 6.894757) if pressure is not None else None,
+                "temperature_c": latest["temperature_c"] if latest else None,
+                "battery_ok": latest["battery_ok"] if latest else None,
+                "rssi": r["max_rssi"],
+                "vehicle_id": r["vehicle_id"],
+                "vehicle_name": names.get(r["vehicle_id"]) if r["vehicle_id"] else None,
+                "started_at": float(r["started_at"]),
+                "started_at_iso": to_iso(float(r["started_at"])),
+                "last_reading_at": float(r["last_reading_at"]),
+                "last_reading_at_iso": to_iso(float(r["last_reading_at"])),
+                "reading_count": int(r["reading_count"]),
+                "max_rssi": r["max_rssi"],
+                "freq_mhz": r["freq_mhz"],
+                "band": band_label(r["freq_mhz"]),
+            }
+        )
+
+    vehicles: dict[int, dict[str, Any]] = {}
+    loose: list[dict[str, Any]] = []
+    for row in sensors:
+        if row["vehicle_id"] is None:
+            loose.append(row)
+            continue
+        group = vehicles.setdefault(
+            int(row["vehicle_id"]),
+            {
+                "vehicle_id": int(row["vehicle_id"]),
+                "vehicle_name": row["vehicle_name"]
+                or f"Unnamed vehicle #{row['vehicle_id']}",
+                "named": bool(row["vehicle_name"]),
+                "sensors": [],
+            },
+        )
+        group["sensors"].append(row)
+
+    known = {
+        int(r["vehicle_id"]): int(r["n"])
+        for r in db.query(
+            """
+            SELECT vehicle_id, COUNT(*) AS n FROM sensors
+             WHERE vehicle_id IS NOT NULL AND alias_of IS NULL AND ignored = 0
+             GROUP BY vehicle_id
+            """
+        )
+    }
+    out = []
+    for group in vehicles.values():
+        group["wheels_known"] = known.get(group["vehicle_id"])
+        group["started_at"] = min(s["started_at"] for s in group["sensors"])
+        group["last_reading_at"] = max(s["last_reading_at"] for s in group["sensors"])
+        out.append(group)
+    out.sort(key=lambda g: g["last_reading_at"], reverse=True)
+    loose.sort(key=lambda r: r["last_reading_at"], reverse=True)
+    return {"vehicles": out, "loose": loose, "count": len(sensors)}
+
+
+def nearest_event(db: Database, ts: float, direction: str = "prev") -> float | None:
+    """Timestamp of the nearest sighting boundary before or after ``ts``."""
+    if direction == "prev":
+        row = db.query_one(
+            "SELECT MAX(started_at) AS t FROM sightings WHERE started_at < ?",
+            (ts,),
+        )
+    else:
+        row = db.query_one(
+            "SELECT MIN(started_at) AS t FROM sightings WHERE started_at > ?",
+            (ts,),
+        )
+    return float(row["t"]) if row and row["t"] is not None else None
+
+
 def _sighting_filters(
     start: float | None,
     end: float | None,

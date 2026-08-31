@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Assign &middot; TPMS{% endblock %}
+{% block body %}
+<h1>Assign</h1>
+<p class="sub">Match sensors to vehicles at a moment in time.</p>
+
+<div class="panel">
+  <form class="row filters" method="get" action="/assign">
+    <label for="f-at">At</label>
+    <input id="f-at" type="datetime-local" name="at" value="{{ at_local }}" step="1">
+    <button class="primary" type="submit">Go</button>
+    <a class="btn{{ ' disabled' if not prev_ts }}"
+       href="{{ '/assign?at=' ~ prev_ts if prev_ts else '' }}"
+       {{ 'aria-disabled=true' if not prev_ts }}
+       title="Previous sighting">&larr; Prev</a>
+    <a class="btn{{ ' disabled' if not next_ts }}"
+       href="{{ '/assign?at=' ~ next_ts if next_ts else '' }}"
+       {{ 'aria-disabled=true' if not next_ts }}
+       title="Next sighting">Next &rarr;</a>
+    <a class="btn" href="/assign">Now</a>
+  </form>
+  <p class="sub">Showing what was audible at <strong>{{ at_iso }}</strong>.</p>
+</div>
+
+<div class="stats">
+  {{ m.stat('Sensors', snapshot.count, 'audible at this moment') }}
+  {{ m.stat('Vehicles', snapshot.vehicles | length, 'with at least one wheel') }}
+  {{ m.stat('Unassigned', snapshot.loose | length, 'not in a vehicle yet') }}
+</div>
+
+{% if not snapshot.vehicles and not snapshot.loose %}
+<div class="panel">
+  <div class="empty">Nothing audible at this moment. Use the arrows to jump to the nearest sighting.</div>
+</div>
+{% endif %}
+
+{% for g in snapshot.vehicles %}
+<div class="panel">
+  <div class="row heard-head">
+    <h3>
+      <a href="/vehicles/{{ g.vehicle_id }}">{{ g.vehicle_name }}</a>
+      <span class="muted">
+        {{ g.sensors | length }}{% if g.wheels_known %}/{{ g.wheels_known }}{% endif %}
+        wheel{{ '' if g.sensors | length == 1 else 's' }}
+      </span>
+    </h3>
+    {% if not g.named %}
+    <form class="inline right" method="post" data-async data-busy="Saving…"
+          action="/api/vehicles/{{ g.vehicle_id }}">
+      <label class="sr-only" for="name-{{ g.vehicle_id }}">Name this vehicle</label>
+      <input id="name-{{ g.vehicle_id }}" type="text" name="name"
+             placeholder="Name this vehicle" size="24">
+      <button type="submit">Name</button>
+    </form>
+    {% endif %}
+  </div>
+  {%- set taken = g.sensors | map(attribute='wheel_label') | select | list %}
+  <div class="scroll"><table>
+    <thead><tr>
+      <th>Sensor</th><th>Band</th>
+      <th class="num">psi</th><th class="num">&deg;C</th><th>Battery</th><th class="num">RSSI</th>
+      <th>First heard</th><th class="num">Readings</th><th>Wheel</th>
+    </tr></thead>
+    <tbody>
+      {% for h in g.sensors %}
+      <tr>
+        <td>{{ m.sensor_link(h.sensor_pk, h.display, h.wheel_label) }}</td>
+        <td class="band">{{ h.band or '—' }}</td>
+        {{ m.reading_cells(h) }}
+        {{ m.when(h.started_at) }}
+        <td class="num">{{ h.reading_count }}</td>
+        <td>
+          <form id="wheel-form-{{ h.sensor_pk }}" method="post" data-async
+                action="/api/sensors/{{ h.sensor_pk }}">
+            {{ m.wheel_picker(h, taken=taken) }}
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endfor %}
+
+{% if snapshot.loose %}
+<div class="panel">
+  <div class="heard-head">
+    <h3>Unassigned sensors</h3>
+  </div>
+  <form method="post" action="/api/assign-group" data-selection>
+    <input type="hidden" name="at" value="{{ at_iso }}">
+    <div class="scroll"><table>
+      <thead><tr>
+        <th><input type="checkbox" data-tick-all aria-label="Select all"></th>
+        <th>Sensor</th><th>Band</th>
+        <th class="num">psi</th><th class="num">&deg;C</th><th>Battery</th><th class="num">RSSI</th>
+        <th>First heard</th><th class="num">Readings</th><th>Assign to</th>
+      </tr></thead>
+      <tbody>
+        {% for h in snapshot.loose %}
+        <tr>
+          <td><input type="checkbox" name="sensor" value="{{ h.sensor_pk }}"></td>
+          <td>{{ m.sensor_link(h.sensor_pk, h.display) }}</td>
+          <td class="band">{{ h.band or '—' }}</td>
+          {{ m.reading_cells(h) }}
+          {{ m.when(h.started_at) }}
+          <td class="num">{{ h.reading_count }}</td>
+          <td>
+            <form class="inline" method="post" data-async
+                  action="/api/sensors/{{ h.sensor_pk }}">
+              <label class="sr-only" for="assign-{{ h.sensor_pk }}">Assign {{ h.display }}</label>
+              <select id="assign-{{ h.sensor_pk }}" name="vehicle_id" data-save-on-change>
+                <option value="none">unassigned</option>
+                <option value="new">new vehicle</option>
+                {% for v in vehicles %}
+                <option value="{{ v.pk }}">{{ v.display }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" data-fallback-for="assign-{{ h.sensor_pk }}">Assign</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+    <div class="row bulk" data-tick-bar hidden>
+      <span data-tick-count>0 selected</span>
+      <span class="spacer"></span>
+      <button type="submit" class="primary" data-needs>Group into new vehicle</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

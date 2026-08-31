@@ -22,7 +22,7 @@ from .. import config as cfg
 from .. import direction as direction_mod
 from .. import sides as sides_mod
 from .. import queries as q
-from ..models import Vehicle, now as now_ts, parse_when, to_iso
+from ..models import Vehicle, now as now_ts, parse_when, to_datetime_local as _to_datetime_local, to_iso
 from ..retention import human_bytes
 from ..service import Service
 
@@ -400,6 +400,25 @@ def create_app(service: Service) -> FastAPI:
                 "vehicle": vehicle,
                 "sensor": sensor,
             },
+        )
+
+    @app.get("/assign", response_class=HTMLResponse)
+    def assign(request: Request, at: str | None = None):
+        ts = _when("at", at) if at else now_ts()
+        snapshot = q.heard_at(db, ts)
+        prev_ts = q.nearest_event(db, ts, "prev")
+        next_ts = q.nearest_event(db, ts, "next")
+        return page(
+            request,
+            "assign.html",
+            nav="assign",
+            snapshot=snapshot,
+            at=ts,
+            at_iso=to_iso(ts),
+            at_local=_to_datetime_local(ts),
+            prev_ts=to_iso(prev_ts) if prev_ts else None,
+            next_ts=to_iso(next_ts) if next_ts else None,
+            vehicles=_vehicle_choices(),
         )
 
     @app.get("/status", response_class=HTMLResponse)
@@ -944,6 +963,32 @@ def create_app(service: Service) -> FastAPI:
         if request.headers.get("accept", "").startswith("application/json"):
             return JSONResponse({"summary": report.summary()})
         return _back(request, "/vehicles", report.summary())
+
+    @app.post("/api/assign-group")
+    async def assign_group(request: Request):
+        form = await request.form()
+        pks = [int(v) for v in form.getlist("sensor") if v]
+        if not pks:
+            return _refuse(request, "/assign", "No sensors selected.")
+        raw_vehicle = (form.get("vehicle_id") or "new").strip()
+        if raw_vehicle == "new":
+            target = db.create_vehicle(now_ts(), auto_generated=False)
+        else:
+            try:
+                target = int(raw_vehicle)
+            except ValueError:
+                raise HTTPException(400, "not a vehicle") from None
+            if db.get_vehicle(target) is None:
+                raise HTTPException(404, "vehicle not found")
+        for pk in pks:
+            if db.get_sensor(pk) is None:
+                continue
+            db.set_sensor_vehicle(pk, target)
+            db.execute("UPDATE sensors SET pinned = 1 WHERE pk = ?", (pk,))
+        db.delete_empty_vehicles()
+        name = _vehicle_name(target)
+        message = f"Grouped {len(pks)} sensor{'s' if len(pks) != 1 else ''} into {name}."
+        return _back(request, "/assign", message)
 
     @app.post("/api/passes/{sighting_pk}/mark")
     async def mark_pass(request: Request, sighting_pk: int):
