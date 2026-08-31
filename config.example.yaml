@@ -131,6 +131,10 @@ clustering:
   # Group sensors heard together in a SINGLE pass when they look like one
   # vehicle: same decoder, comparable signal level. Most vehicles on a public
   # road are only ever heard once, so with this off they never group at all.
+  # In a community, where most vehicles return, it is the visitors and the
+  # deliveries. Either way it applies only to a pair that has never had the
+  # chance to confirm: once the rarer of the two has been heard
+  # min_cooccurrences times, its failure to coincide is evidence of absence.
   # Such vehicles are marked "provisional" until a return visit confirms them.
   # Turn off if you only care about vehicles you see repeatedly.
   single_pass: true

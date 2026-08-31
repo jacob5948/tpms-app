@@ -307,3 +307,50 @@ def test_residents_of_two_different_cars_do_not_merge(ingestor, db):
     assert sorted(_groups(db).values()) == [
         ["36dca165", "36dcc7ee"], ["da06e368", "da06e425"]
     ]
+
+
+# -- what the single-pass rule is for ---------------------------------------
+
+
+def test_a_pair_that_had_its_chance_and_did_not_confirm_is_not_grouped(ingestor, db):
+    """Single-pass grouping is for sensors that have never had the chance to
+    confirm -- a car heard once, where the alternative is not grouping it at
+    all. Applied to a pair heard twenty times each, it reads their twenty
+    failures to coincide as a reason to try a weaker test.
+
+    Both of these are Toyotas with neighbouring ids, so shape alone would
+    weld them; on a saturating receiver, where every strong sensor reports the
+    same level, shape alone welds most of the road.
+    """
+    for i in range(20):
+        _pass(ingestor, "Toyota-TPMS", ["d9f1e496", "d9f1e4a3"], 10_000 + i * 7200)
+        _pass(ingestor, "Toyota-TPMS", ["d9f1df5b", "d9f1e469"], 40_000 + i * 7200)
+    # One moment where both were audible: a neighbour arriving as another left.
+    _pass(ingestor, "Toyota-TPMS",
+          ["d9f1e496", "d9f1e4a3", "d9f1df5b", "d9f1e469"], 500_000)
+    ingestor.sweep(when=9e9)
+    Clusterer(db).run()
+
+    groups = sorted(_groups(db).values())
+    assert groups == [["d9f1df5b", "d9f1e469"], ["d9f1e496", "d9f1e4a3"]], groups
+
+
+def test_a_car_heard_once_still_groups(ingestor, db):
+    """The case the rule exists for, and the one that must survive it: a
+    visitor or a delivery, heard on one pass and never again."""
+    _pass(ingestor, "Toyota-TPMS", ["da10aa0e", "da10aa30"], 10_000)
+    ingestor.sweep(when=9e9)
+    report = Clusterer(db).run()
+    assert list(_groups(db).values()) == [["da10aa0e", "da10aa30"]]
+    assert report.provisional, "one pass groups, and says it is a guess"
+
+
+def test_a_wheel_heard_once_still_joins_a_car_heard_often(ingestor, db):
+    """The rarer sensor's count is what decides, so a weak wheel that is only
+    caught once still reaches the car it belongs to."""
+    for i in range(10):
+        _pass(ingestor, "Toyota-TPMS", ["d7ef97f1", "d7ef9818"], 10_000 + i * 7200)
+    _pass(ingestor, "Toyota-TPMS", ["d7ef97f1", "d7ef9818", "d7ef9828"], 200_000)
+    ingestor.sweep(when=9e9)
+    Clusterer(db).run()
+    assert list(_groups(db).values()) == [["d7ef97f1", "d7ef9818", "d7ef9828"]]

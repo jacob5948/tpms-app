@@ -175,10 +175,27 @@ Duplicates are folded into one canonical sensor before clustering.
 
 ### Vehicles seen only once
 
-Most vehicles on a public road pass once and never return, so they can never
-reach `min_cooccurrences`. When `clustering.single_pass` is on (the default),
-sensors heard together in one pass that share a decoder and a comparable signal
-level are grouped anyway, and the vehicle is marked **provisional**.
+Some vehicles pass once and never return, so they can never reach
+`min_cooccurrences`. Which ones depends entirely on where the receiver sits: on
+a through road that is nearly all of them, while in a residential community it
+is the deliveries and the visitors, and the cars that live there are heard
+several times a day. When `clustering.single_pass` is on (the default), sensors
+heard together in one pass that share a decoder and a comparable signal level
+are grouped anyway, and the vehicle is marked **provisional**.
+
+The rule only applies to a pair that has never had the chance to confirm --
+where the rarer of the two has been heard fewer than `min_cooccurrences` times.
+Past that, the pair has had its run, and a failure to coincide over twenty
+sightings each is evidence of absence; falling back to a weaker test there
+reads it as the opposite. It is the rarer sensor's count that decides, so a
+weak wheel caught once still reaches the car it belongs to.
+
+That distinction matters most where vehicles return. Signal level is the whole
+of the fallback test once IDs are far apart, so on a saturating receiver --
+where every strong sensor reports the same level -- one shared ten-second
+window was enough to weld two unrelated cars together, permanently: nothing
+ever deletes a co-occurrence, and the single-pass branch has no threshold that
+time can push a pair back across.
 
 "Share a decoder" means their decoder *sets* overlap, counting duplicate
 decodes. That matters: three wheels all decoded as Jansite can end up with
@@ -187,7 +204,9 @@ collapsed, and comparing only the canonical model would split one car
 into three. It is
 promoted to confirmed if the same sensors are heard together again.
 
-Turn `single_pass` off if you only care about vehicles that visit repeatedly.
+Turn `single_pass` off if you only care about vehicles that visit repeatedly
+— in a community where almost everything returns, the confirmed path carries
+nearly all of it and this only ever groups the visitors.
 
 ### The known limitation
 

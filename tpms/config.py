@@ -188,7 +188,10 @@ class ClusterConfig:
     max_cluster_size: int = 6
     #: Group sensors heard together in a *single* pass when they look like one
     #: vehicle: same decoder, comparable signal level. Most vehicles on a public
-    #: road are only ever heard once, so without this they never group at all.
+    #: road are only ever heard once, so without this they never group at all;
+    #: in a community it is the visitors rather than the residents. Applies
+    #: only to a pair that has never had the chance to confirm -- see
+    #: ``Clusterer.build_edges``.
     #: The resulting vehicles are marked provisional until a return visit
     #: corroborates them.
     single_pass: bool = True

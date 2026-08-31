@@ -163,6 +163,20 @@ class Clusterer:
                 edges.append(Edge(a=a, b=b, count=count, support=support))
             elif (
                 self.config.single_pass
+                # The rule is for sensors that have never had the chance to
+                # confirm -- a car heard once, where the alternative is not
+                # grouping it at all. It was applying to every pair, including
+                # one whose sensors have been heard dozens of times each: a
+                # pair that has had the chance to confirm and did not is
+                # evidence of absence, and falling back to a weaker test is
+                # reading it as the opposite.
+                #
+                # `denominator` is the rarer sensor's sightings, so a wheel
+                # heard once beside a wheel heard fifty times still groups --
+                # the weak wheel is exactly the case this protects. Both have
+                # to have had a fair run before their silence counts against
+                # them.
+                and denominator < self.config.min_cooccurrences
                 # One shared window is not enough for a resident even when the
                 # shape matches: it is audible during every window there is.
                 and a not in residents

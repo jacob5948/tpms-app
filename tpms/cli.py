@@ -268,6 +268,7 @@ def cmd_diagnose(args: argparse.Namespace) -> int:
             verdict = "GROUPED (confirmed)"
         elif (
             cfg.single_pass
+            and min(counts.get(a, 0), counts.get(b, 0)) < cfg.min_cooccurrences
             and a not in residents
             and b not in residents
             and clusterer._same_vehicle_shape(a, b, profiles)
@@ -275,6 +276,11 @@ def cmd_diagnose(args: argparse.Namespace) -> int:
             verdict = "GROUPED (provisional -- one pass only)"
         else:
             reasons = []
+            if (
+                cfg.single_pass
+                and min(counts.get(a, 0), counts.get(b, 0)) >= cfg.min_cooccurrences
+            ):
+                reasons.append("both heard often enough to have confirmed, and did not")
             if count < cfg.min_cooccurrences:
                 reasons.append(f"needs {cfg.min_cooccurrences - count} more shared pass(es)")
             if support < cfg.min_support:
