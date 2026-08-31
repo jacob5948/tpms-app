@@ -14,14 +14,14 @@
 </h1>
 <p class="sub">
   {{ sensors | length }} sensor{{ '' if sensors | length == 1 else 's' }} &middot;
-  {{ intervals | length }} pass{{ '' if intervals | length == 1 else 'es' }} &middot;
+  {{ passes | length }} pass{{ '' if passes | length == 1 else 'es' }} &middot;
   {{ 'auto-clustered' if vehicle.auto_generated else 'manually curated' }}
 </p>
 
 <div class="stats">
   {{ m.stat('Wheels heard', sensors | length) }}
-  {{ m.stat('Passes', intervals | length) }}
-  {{ m.stat('Last heard', (intervals[0].ended_at or intervals[0].started_at) | ago if intervals else '—') }}
+  {{ m.stat('Passes', passes | length) }}
+  {{ m.stat('Last heard', passes[0].last_reading_at | ago if passes else '—') }}
   {{ m.stat('Readings', sensors | sum(attribute='reading_count')) }}
 </div>
 
@@ -217,25 +217,35 @@
   <div id="chart-frequency"></div>
 </div>
 <div class="panel">
-  {% if intervals %}
+  {% if passes %}
   <div class="scroll"><table>
-    {# Direction sits beside the wheel count it is read from: the two are one
-       fact, and a reader who doubts the heading looks straight at how many
-       wheels were heard. #}
-    <thead><tr><th>First heard</th><th>Last heard</th><th class="num">Duration</th><th>Direction</th><th class="num">Wheels</th><th class="num">Readings</th></tr></thead>
+    {# The log's pass row, minus the column that names the vehicle -- the page
+       is the vehicle. Direction sits beside the wheel count it is read from:
+       the two are one fact, and a reader who doubts the heading looks
+       straight at how many wheels were heard. #}
+    <thead><tr>
+      <th>First heard</th><th>Last heard</th><th class="num">Duration</th>
+      <th>Direction</th><th class="num">Wheels</th><th class="num">Readings</th>
+      <th class="num">Peak RSSI</th><th>Band</th><th></th>
+    </tr></thead>
     <tbody>
-      {% for i in intervals %}
+      {% for p in passes %}
       <tr>
-        {{ m.when(i.started_at) }}
-        <td data-sort="{{ i.ended_at or i.started_at }}" title="{{ i.ended_at | iso }}">
-          {%- if i.open %}<span class="pill live">still audible</span>
-          {%- else %}{{ i.ended_at | ago }}{% endif -%}
+        {{ m.when(p.started_at) }}
+        <td data-sort="{{ p.last_reading_at }}" title="{{ p.last_reading_at_iso }}">
+          {%- if p.open %}<span class="pill live">still audible</span>
+          {%- else %}{{ p.last_reading_at | ago }}{% endif -%}
         </td>
-        <td class="num" data-sort="{{ i.duration }}">{{ i.duration | duration }}</td>
-        {{ m.heading_cell(i.heading) }}
-        <td class="num">{{ i.sensor_count }}</td>
-        <td class="num">{{ i.reading_count }}</td>
+        <td class="num" data-sort="{{ p.duration }}">{{ p.duration | duration }}</td>
+        {{ m.heading_cell(p.heading) }}
+        {{ m.wheels_cell(p.wheels_heard, p.wheels_known) }}
+        <td class="num">{{ p.reading_count }}</td>
+        <td class="num" data-sort="{{ p.max_rssi if p.max_rssi is not none else '' }}">
+          {{- '%.1f' % p.max_rssi if p.max_rssi is not none else '—' -}}</td>
+        <td class="band">{{ p.band or '—' }}</td>
+        <td>{{ m.expand_button('pass-' ~ loop.index, p.sightings | length) }}</td>
       </tr>
+      {{ m.sightings_rows(p.sightings, 'pass-' ~ loop.index, 9) }}
       {% endfor %}
     </tbody>
   </table></div>
@@ -254,6 +264,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/expand.js"></script>
 <script src="/static/chart.js"></script>
 <script>
 (function () {

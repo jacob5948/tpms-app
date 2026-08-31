@@ -157,3 +157,24 @@ def test_empty_filters_mean_no_filter(client):
     assert len(csv_export.text.splitlines()) == len(
         client.get("/api/export.csv?view=passes").text.splitlines()
     )
+
+
+def test_a_vehicles_own_history_knows_as_much_as_the_log(client, service):
+    """The page you open to study one vehicle used to show four columns of a
+    pass while the log showed nine, so the closer look was the poorer one."""
+    vehicle = next(v for v in service.db.list_vehicles() if service.db.sensors_for_vehicle(v.pk))
+    body = client.get(f"/vehicles/{vehicle.pk}").text
+    for column in ("Direction", "Wheels", "Readings", "Peak RSSI", "Band"):
+        assert f">{column}<" in body, column
+    assert "sightings" in body, "no way to open the evidence behind a pass"
+
+
+def test_the_vehicle_page_counts_the_passes_the_log_counts(client, service):
+    """The stat over the table and the rows in it are one query, so 'Passes: 12'
+    can never sit above eleven rows."""
+    vehicle = next(v for v in service.db.list_vehicles() if service.db.sensors_for_vehicle(v.pk))
+    passes = q.vehicle_passes(
+        service.db, service.config.sessions.gap_seconds, vehicle_id=vehicle.pk, limit=100
+    )
+    body = client.get(f"/vehicles/{vehicle.pk}").text
+    assert f"{len(passes)} pass" in body

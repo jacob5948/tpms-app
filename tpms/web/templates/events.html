@@ -111,54 +111,14 @@
           {%- endif -%}
         </td>
         {{ m.heading_cell(p.heading) }}
-        <td class="num" data-sort="{{ p.wheels_heard }}"
-            title="Transmitters heard on this pass{% if p.wheels_known %}, out of {{ p.wheels_known }} known on this vehicle{% endif %}">
-          {{ p.wheels_heard }}{% if p.wheels_known %}<span class="muted">/{{ p.wheels_known }}</span>{% endif %}
-        </td>
+        {{ m.wheels_cell(p.wheels_heard, p.wheels_known) }}
         <td class="num">{{ p.reading_count }}</td>
         <td class="num" data-sort="{{ p.max_rssi if p.max_rssi is not none else '' }}">
           {{- '%.1f' % p.max_rssi if p.max_rssi is not none else '—' -}}</td>
         <td class="band">{{ p.band or '—' }}</td>
-        <td>
-          {% if p.sightings | length > 1 %}
-          <button type="button" class="link" data-expand="pass-{{ loop.index }}"
-                  aria-expanded="false" aria-controls="pass-{{ loop.index }}">
-            {{ p.sightings | length }} sightings
-          </button>
-          {% endif %}
-        </td>
+        <td>{{ m.expand_button('pass-' ~ loop.index, p.sightings | length) }}</td>
       </tr>
-      {% if p.sightings | length > 1 %}
-      {# Rendered, not fetched: without JS these are simply visible, which is
-         the correct fallback for "the evidence behind this row". #}
-      <tr class="sub-rows" id="pass-{{ loop.index }}" data-nosort>
-        <td colspan="10">
-          <table class="inner">
-            <thead><tr>
-              <th>Sensor</th><th>First heard</th><th>Last heard</th>
-              <th class="num">Duration</th><th class="num">Readings</th>
-              <th class="num">Peak RSSI</th><th>Band</th>
-            </tr></thead>
-            <tbody>
-              {% for x in p.sightings %}
-              <tr>
-                <td>{{ m.sensor_link(x.sensor_pk, x.display, x.wheel_label) }}</td>
-                {{ m.when(x.started_at) }}
-                <td title="{{ x.last_reading_at_iso }}">
-                  {%- if x.open %}<span class="pill live">still audible</span>
-                  {%- else %}{{ x.last_reading_at | ago }}{% endif -%}
-                </td>
-                <td class="num">{{ x.duration | duration }}</td>
-                <td class="num">{{ x.reading_count }}</td>
-                <td class="num">{{ '%.1f' % x.max_rssi if x.max_rssi is not none else '—' }}</td>
-                <td class="band">{{ x.band or '—' }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </td>
-      </tr>
-      {% endif %}
+      {{ m.sightings_rows(p.sightings, 'pass-' ~ loop.index, 10) }}
       {% endfor %}
     </tbody>
   </table>
@@ -194,19 +154,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-// Collapse the sightings behind each pass. They are in the DOM already, so
-// this only hides them -- with JS off the page still shows the evidence.
-(function () {
-  document.querySelectorAll('.sub-rows').forEach(row => { row.hidden = true; });
-  document.querySelectorAll('[data-expand]').forEach(button => {
-    button.addEventListener('click', () => {
-      const row = document.getElementById(button.dataset.expand);
-      if (!row) return;
-      row.hidden = !row.hidden;
-      button.setAttribute('aria-expanded', String(!row.hidden));
-    });
-  });
-})();
-</script>
+<script src="/static/expand.js"></script>
 {% endblock %}

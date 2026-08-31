@@ -247,9 +247,9 @@ def test_the_vehicle_page_shows_each_pass_direction(client_named):
     assert "southbound" in body
 
 
-def test_the_vehicle_page_and_the_log_agree_on_a_direction(client):
-    """One inference, read at the moment it is shown. Two views calling a
-    pass differently would make both untrustworthy."""
+def test_the_vehicle_page_and_the_log_read_one_pass_log(client):
+    """Not two answers kept in step: the page filters the log's passes to this
+    vehicle, so a heading cannot differ between the two views."""
     api, service = client
     db = service.db
     vehicle = db.list_vehicles()[0]
@@ -258,30 +258,12 @@ def test_the_vehicle_page_and_the_log_agree_on_a_direction(client):
 
     gap = service.config.sessions.gap_seconds
     margin = service.config.direction.rssi_margin
-    intervals = q.vehicle_intervals(db, vehicle.pk, gap, limit=5000, rssi_margin=margin)
-    passes = [
-        p
-        for p in q.vehicle_passes(db, gap, vehicle_id=vehicle.pk, limit=5000)
-        if p["vehicle_id"] == vehicle.pk
-    ]
+    passes = q.vehicle_passes(
+        db, gap, vehicle_id=vehicle.pk, limit=100, rssi_margin=margin
+    )
+    assert passes, "no passes to show"
 
-    by_start = {round(p["started_at"], 3): p["heading"] for p in passes}
-    assert by_start, "no passes to compare"
-    for interval in intervals:
-        expected = by_start[round(interval.started_at, 3)]
-        if expected is None:
-            assert interval.heading is None
-        else:
-            assert interval.heading is not None
-            assert interval.heading.side == expected.side
-            assert interval.heading.firm == expected.firm
-
-
-def test_the_vehicle_list_does_not_pay_for_directions_it_never_shows(client):
-    """Intervals are computed for every vehicle on the list page; the
-    inference is only run when a caller asks for it."""
-    _, service = client
-    vehicle = service.db.list_vehicles()[0]
-    gap = service.config.sessions.gap_seconds
-    intervals = q.vehicle_intervals(service.db, vehicle.pk, gap)
-    assert intervals and all(i.heading is None for i in intervals)
+    body = api.get(f"/vehicles/{vehicle.pk}").text
+    for shown in passes:
+        if shown["heading"]:
+            assert shown["heading"].name({}) in body

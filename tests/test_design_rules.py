@@ -221,12 +221,28 @@ def test_a_bad_filter_value_blames_the_box(client):
     assert "TPMS watch" in response.text
 
 
-def test_the_sightings_behind_a_pass_are_rendered_not_fetched():
+@pytest.mark.parametrize("path", ("/events", "/vehicles/1"))
+def test_the_sightings_behind_a_pass_are_rendered_not_fetched(client, path):
     """Without JS they are simply visible, which is the right fallback for
     "the evidence behind this row"."""
-    html = (TEMPLATES / "events.html").read_text()
+    html = client.get(path).text
     assert 'class="sub-rows"' in html
-    assert "row.hidden = true" in html, "hidden by script, present in the HTML"
+    assert "/static/expand.js" in html
+    assert "row.hidden = true" in (STATIC / "expand.js").read_text(), (
+        "hidden by script, present in the HTML"
+    )
+
+
+def test_a_pass_shows_the_same_evidence_wherever_it_is_shown(client):
+    """The log and a vehicle's own history show the same object, so they show
+    it the same way -- one markup, reached from both."""
+    macros = (TEMPLATES / "_macros.html").read_text()
+    assert 'class="sub-rows"' in macros, "the evidence row lives in one place"
+    for template in ("events.html", "vehicle.html"):
+        html = (TEMPLATES / template).read_text()
+        assert "m.sightings_rows(" in html
+        assert "m.heading_cell(" in html
+        assert 'class="sub-rows"' not in html, "a second copy will drift"
 
 
 def test_no_dead_css_for_the_removed_timeline():

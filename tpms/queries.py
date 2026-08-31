@@ -20,10 +20,6 @@ class Interval:
     ended_at: float | None
     sensor_count: int
     reading_count: int
-    #: Which way the vehicle was pointing, when the wheels heard can say.
-    #: Inferred at read time from the labels as they are now, never stored --
-    #: the same rule the pass log follows, so the two always agree.
-    heading: direction.Heading | None = None
 
     @property
     def open(self) -> bool:
@@ -68,24 +64,15 @@ def merge_runs(
 
 
 def merge_intervals(
-    rows: list[tuple[float, float | None, int]],
-    join_gap: float,
-    heading_of: Any = None,
+    rows: list[tuple[float, float | None, int]], join_gap: float
 ) -> list[Interval]:
-    """Roll per-sensor sightings up into per-vehicle intervals, newest first.
-
-    ``heading_of`` is handed the sightings behind one interval and returns the
-    direction they support, if any. Optional because a caller that only plots
-    when a vehicle was audible has no use for it and need not carry the
-    columns the inference reads.
-    """
+    """Roll per-sensor sightings up into per-vehicle intervals, newest first."""
     merged = [
         Interval(
             run["started_at"],
             run["ended_at"],
             len(run["items"]),
             sum(item[2] for item in run["items"]),
-            heading_of(run["items"]) if heading_of else None,
         )
         for run in merge_runs(rows, join_gap)
     ]
@@ -93,25 +80,16 @@ def merge_intervals(
     return merged
 
 
-def vehicle_intervals(
-    db: Database,
-    vehicle_id: int,
-    join_gap: float,
-    limit: int = 100,
-    rssi_margin: float | None = None,
-):
-    """One row per pass this vehicle made, newest first.
+def vehicle_intervals(db: Database, vehicle_id: int, join_gap: float, limit: int = 100):
+    """When a vehicle was audible, one row per pass, newest first.
 
-    ``rssi_margin`` asks for each pass's direction as well; callers that only
-    want when it was heard leave it out and skip the inference, which is the
-    vehicle list, once per vehicle per interval.
+    Times and counts only. What each pass *was* -- which wheels, how loudly,
+    which way it was pointing -- is `vehicle_passes`, and the pages that show
+    a pass read it from there rather than growing a second answer here.
     """
-    # The wheel label and level ride along because each pass carries which way
-    # the vehicle was pointing, and that is read from the wheels heard on that
-    # pass -- the same evidence, and the same call, as the log makes.
     rows = db.query(
         """
-        SELECT s.started_at, s.ended_at, s.reading_count, s.max_rssi, n.wheel_label
+        SELECT s.started_at, s.ended_at, s.reading_count
           FROM sightings s
           JOIN sensors n ON n.pk = s.sensor_pk
          WHERE n.vehicle_id = ?
@@ -121,24 +99,8 @@ def vehicle_intervals(
         (vehicle_id,),
     )
     intervals = merge_intervals(
-        [
-            (
-                float(r["started_at"]),
-                r["ended_at"],
-                int(r["reading_count"]),
-                r["wheel_label"],
-                r["max_rssi"],
-            )
-            for r in rows
-        ],
+        [(float(r["started_at"]), r["ended_at"], int(r["reading_count"])) for r in rows],
         join_gap,
-        heading_of=(
-            lambda items: direction.infer(
-                [(item[3], item[4]) for item in items], rssi_margin
-            )
-            if rssi_margin is not None
-            else None
-        ),
     )
     return intervals[:limit]
 

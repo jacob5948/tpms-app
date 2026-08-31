@@ -136,6 +136,69 @@
 </td>
 {% endmacro %}
 
+{#
+  The wheels heard on one pass, out of the wheels the vehicle is known to
+  carry. A car that usually shows four and showed one is the interesting row,
+  and the fraction is what says so.
+#}
+{% macro wheels_cell(heard, known) %}
+<td class="num" data-sort="{{ heard }}"
+    title="Transmitters heard on this pass{% if known %}, out of {{ known }} known on this vehicle{% endif %}">
+  {{ heard }}{% if known %}<span class="muted">/{{ known }}</span>{% endif %}
+</td>
+{% endmacro %}
+
+{#
+  The button that reveals the sightings behind a pass, and the row they live
+  in. Shared, because the log and a vehicle's own history show the same pass
+  and must show the same evidence for it -- and because the sub-row's colspan
+  has to match the table it is nested in, which is easiest to get right when
+  the caller states it once next to its own header.
+
+  The rows are rendered, not fetched: with JS off they are simply visible,
+  which is the correct fallback for "the evidence behind this row".
+#}
+{% macro expand_button(row_id, count) %}
+{% if count > 1 %}
+<button type="button" class="link" data-expand="{{ row_id }}"
+        aria-expanded="false" aria-controls="{{ row_id }}">
+  {{ count }} sightings
+</button>
+{% endif %}
+{% endmacro %}
+
+{% macro sightings_rows(sightings, row_id, colspan) %}
+{% if sightings | length > 1 %}
+<tr class="sub-rows" id="{{ row_id }}" data-nosort>
+  <td colspan="{{ colspan }}">
+    <table class="inner">
+      <thead><tr>
+        <th>Sensor</th><th>First heard</th><th>Last heard</th>
+        <th class="num">Duration</th><th class="num">Readings</th>
+        <th class="num">Peak RSSI</th><th>Band</th>
+      </tr></thead>
+      <tbody>
+        {% for x in sightings %}
+        <tr>
+          <td>{{ sensor_link(x.sensor_pk, x.display, x.wheel_label) }}</td>
+          {{ when(x.started_at) }}
+          <td title="{{ x.last_reading_at_iso }}">
+            {%- if x.open %}<span class="pill live">still audible</span>
+            {%- else %}{{ x.last_reading_at | ago }}{% endif -%}
+          </td>
+          <td class="num">{{ x.duration | duration }}</td>
+          <td class="num">{{ x.reading_count }}</td>
+          <td class="num">{{ '%.1f' % x.max_rssi if x.max_rssi is not none else '—' }}</td>
+          <td class="band">{{ x.band or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </td>
+</tr>
+{% endif %}
+{% endmacro %}
+
 {% macro battery(battery_ok) %}
 {%- if battery_ok == 0 -%}<span class="pill warn">low</span>
 {%- elif battery_ok == 1 -%}<span class="pill ok">ok</span>
