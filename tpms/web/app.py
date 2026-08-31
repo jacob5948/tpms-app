@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BeforeValidator
 
+from .. import config as cfg
 from .. import direction as direction_mod
 from .. import queries as q
 from ..models import Vehicle, now as now_ts, parse_when, to_iso
@@ -137,18 +138,30 @@ def create_app(service: Service) -> FastAPI:
     templates.env.filters["ago"] = _fmt_ago
     templates.env.filters["iso"] = to_iso
     templates.env.filters["bytes"] = human_bytes
-    # Read by base.html for the charts, which label their own axes.
-    templates.env.globals["timezone"] = service.config.timezone
-
     db = service.db
-    gap = service.config.sessions.gap_seconds
-    # Named once: the log, the vehicle page and the CSV must all call a
-    # heading the same thing, and a second lookup is a second chance to
-    # disagree with the config.
-    direction_names = service.config.direction.names
-    rssi_margin = service.config.direction.rssi_margin
-    templates.env.globals["direction_names"] = direction_names
     templates.env.globals["wheel_positions"] = direction_mod.WHEEL_POSITIONS
+
+    # Settings are read per request, never captured here.
+    #
+    # These were once locals, bound when the app was built. That was harmless
+    # while a config could only change by restarting the process -- and became
+    # a bug the moment the Settings page could change one, because a saved
+    # value would be written to disk, adopted by the service, and still not
+    # reach the log until a restart. A page that appears to do nothing is the
+    # worst of the outcomes, so nothing caches a setting.
+    #
+    # Exposed as callables and called in the templates -- `{{ timezone() }}`.
+    # Jinja renders a bare function as its repr rather than calling it, and a
+    # macro cannot see the render context, so a global that is called is the
+    # one shape that works from inside _macros.html as well as from a page.
+    templates.env.globals["timezone"] = lambda: service.config.timezone
+    templates.env.globals["direction_names"] = lambda: service.config.direction.names
+
+    def gap() -> float:
+        return service.config.sessions.gap_seconds
+
+    def rssi_margin() -> float:
+        return service.config.direction.rssi_margin
 
     def page(request: Request, name: str, **context: Any) -> HTMLResponse:
         context.setdefault("nav", name.replace(".html", ""))
@@ -214,7 +227,7 @@ def create_app(service: Service) -> FastAPI:
             request,
             "live.html",
             heard=q.heard_now_groups(db),
-            gap=gap,
+            gap=gap(),
             now=now_ts(),
             vehicles=_vehicle_choices(),
         )
@@ -224,7 +237,7 @@ def create_app(service: Service) -> FastAPI:
         return page(
             request,
             "vehicles.html",
-            vehicles=q.vehicle_summaries(db, gap),
+            vehicles=q.vehicle_summaries(db, gap()),
             unassigned=[s for s in q.sensor_rows(db) if s["vehicle_id"] is None],
         )
 
@@ -242,7 +255,7 @@ def create_app(service: Service) -> FastAPI:
             vehicle=vehicle,
             sensors=sensors,
             history=history,
-            intervals=q.vehicle_intervals(db, vehicle_id, gap, limit=100),
+            intervals=q.vehicle_intervals(db, vehicle_id, gap(), limit=100),
             all_vehicles=[v for v in _vehicle_choices() if v.pk != vehicle_id],
         )
 
@@ -272,7 +285,7 @@ def create_app(service: Service) -> FastAPI:
             "sensor.html",
             nav="sensors",
             s=detail,
-            gap=gap,
+            gap=gap(),
             vehicles=_vehicle_choices(),
         )
 
@@ -307,9 +320,9 @@ def create_app(service: Service) -> FastAPI:
 
         if view == "passes":
             rows = q.vehicle_passes(
-                db, gap, start=start, end=end, vehicle_id=vehicle,
+                db, gap(), start=start, end=end, vehicle_id=vehicle,
                 sensor_pk=sensor, limit=limit, scan_limit=PASS_SCAN_LIMIT,
-                include_ignored=seeing_hidden, rssi_margin=rssi_margin,
+                include_ignored=seeing_hidden, rssi_margin=rssi_margin(),
             )
             truncated = total > PASS_SCAN_LIMIT or len(rows) == limit
         else:
@@ -341,6 +354,94 @@ def create_app(service: Service) -> FastAPI:
     @app.get("/status", response_class=HTMLResponse)
     def status_page(request: Request):
         return page(request, "status.html", status=service.status())
+
+    # -- settings ---------------------------------------------------------
+
+    def _grouped_settings() -> list[dict[str, Any]]:
+        """The editable config, in the order the file declares it."""
+        groups: list[dict[str, Any]] = []
+        index: dict[str | None, dict[str, Any]] = {}
+        for setting in cfg.settings(service.config):
+            group = index.get(setting.section)
+            if group is None:
+                group = {
+                    "name": setting.section,
+                    "help": cfg.SECTION_HELP.get(setting.section or "", ""),
+                    "restart": setting.section in cfg.NEEDS_RADIO_RESTART,
+                    "settings": [],
+                }
+                index[setting.section] = group
+                groups.append(group)
+            group["settings"].append(setting)
+        return groups
+
+    @app.get("/settings", response_class=HTMLResponse)
+    def settings_page(request: Request):
+        return page(
+            request,
+            "settings.html",
+            groups=_grouped_settings(),
+            write_path=str(service.config.write_path),
+            untracked=service.config.source_path is None,
+        )
+
+    @app.post("/api/settings")
+    async def save_settings(request: Request):
+        """Take the form, put it into effect, then write it down.
+
+        In that order, and both or neither. A value the running program will
+        not accept must not reach the file, or the next start reads a config
+        that cannot be loaded -- so everything is parsed and validated before
+        anything is assigned, and the file is written from what the process
+        actually holds rather than from the form.
+        """
+        form = await request.form()
+        here = "/settings"
+
+        values: dict[str, Any] = {}
+        for setting in cfg.settings(service.config):
+            if setting.read_only:
+                continue
+            if setting.kind == "bool":
+                # An unticked checkbox sends nothing at all, which is the
+                # difference between "off" and "not on this form".
+                if f"seen:{setting.path}" not in form:
+                    continue
+                values[setting.path] = setting.path in form
+                continue
+            if setting.path not in form:
+                continue
+            try:
+                values[setting.path] = cfg.coerce(setting, form.get(setting.path))
+            except cfg.SettingError as error:
+                return _refuse(request, here, str(error))
+
+        changed = cfg.apply(service.config, values)
+        if not changed:
+            return _back(request, here, "Nothing to change.")
+
+        try:
+            path = service.config.write_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Keep the last version. Comments in this file are regenerated on
+            # every save, so an accidental save is otherwise unrecoverable.
+            if path.exists():
+                path.with_suffix(path.suffix + ".bak").write_text(path.read_text())
+            path.write_text(cfg.dump(cfg.to_dict(service.config)))
+        except OSError as error:
+            # The process has already adopted the change, so say both halves.
+            return _back(
+                request, here,
+                f"Applied, but could not write {service.config.write_path}: "
+                f"{error}. The change is live and will be lost on restart.",
+                kind="err",
+            )
+
+        radio = sorted(p for p in changed if p.split(".")[0] in cfg.NEEDS_RADIO_RESTART)
+        message = f"Saved {len(changed)} change{'' if len(changed) == 1 else 's'}."
+        if radio:
+            message += " Restart the receiver for the radio settings to take effect."
+        return _back(request, here, message)
 
     # -- live feed --------------------------------------------------------
 
@@ -415,7 +516,7 @@ def create_app(service: Service) -> FastAPI:
     def api_heard_now():
         # The flat list, for anything reading this as data rather than
         # rendering the page's grouping.
-        return {"heard": q.heard_now(db), "gap": gap, "now": now_ts()}
+        return {"heard": q.heard_now(db), "gap": gap(), "now": now_ts()}
 
     @app.get("/api/status")
     def api_status():
@@ -453,7 +554,7 @@ def create_app(service: Service) -> FastAPI:
         if db.get_vehicle(vehicle_id) is None:
             raise HTTPException(404, "vehicle not found")
         start, end = _window(since, until)
-        return q.vehicle_presence(db, vehicle_id, gap, start, end, buckets)
+        return q.vehicle_presence(db, vehicle_id, gap(), start, end, buckets)
 
     @app.get("/api/vehicles/{vehicle_id}/history")
     def api_vehicle_history(
@@ -795,9 +896,9 @@ def create_app(service: Service) -> FastAPI:
                  "still_audible", "direction", "direction_basis"]
             )
             for row in q.vehicle_passes(
-                db, gap, start=start, end=end, vehicle_id=vehicle,
+                db, gap(), start=start, end=end, vehicle_id=vehicle,
                 sensor_pk=sensor, limit=100000, scan_limit=1000000,
-                include_ignored=seeing_hidden, rssi_margin=rssi_margin,
+                include_ignored=seeing_hidden, rssi_margin=rssi_margin(),
             ):
                 writer.writerow(
                     [
@@ -814,7 +915,7 @@ def create_app(service: Service) -> FastAPI:
                         "yes" if row["open"] else "no",
                         # The screen and the CSV are one view, so a column the
                         # log shows is a column the export carries.
-                        row["heading"].name(direction_names)
+                        row["heading"].name(service.config.direction.names)
                         if row["heading"] else "",
                         row["heading"].basis if row["heading"] else "",
                     ]

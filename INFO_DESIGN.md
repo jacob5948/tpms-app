@@ -186,6 +186,37 @@ vehicle's own page carry the prose.
 all facets of one window — two views of one window must not be able to disagree
 about which window that is.
 
+**Nothing caches a setting.** Every read of the config goes to
+`service.config` at the moment it is needed. `gap`, `direction_names` and
+`rssi_margin` were once locals bound when the app was built, which was
+harmless while only a restart could change a config -- and became a bug the
+moment the Settings page could change one, because a saved value would reach
+the file and the service and still not reach the log. A page that appears to
+do nothing is the worst outcome of a save, so the two template globals are
+callables (`{{ timezone() }}`) rather than values: a Jinja macro cannot see
+the render context, so a called global is the one shape that works from inside
+`_macros.html` as well as from a page.
+
+**A config the program would not load must never reach the file.** The
+Settings page parses and validates every box before assigning any, then writes
+the file from what the process actually holds rather than from the form. Half
+a save is a config that fails to load on next start, from a UI that reported
+success. A refusal names the box it came from -- there are forty on that page
+and "invalid literal for int()" identifies none of them -- and leaves the file
+byte-identical.
+
+**A rewritten config still explains itself.** The Settings page rewrites
+`config.yaml` in place, and every knob in that file has a reason worth more
+than its number. So the prose lives beside the defaults in `config.py` and is
+re-emitted on every save, and the previous version is kept as `.bak` because
+comments regenerated from code cannot recover a note someone typed by hand.
+
+**A setting the running process cannot adopt is shown, not offered.**
+`database` is the whole of that set: every component was handed a connection
+to the old file at startup, so a box for it would change where the *next* run
+looks and nothing about this one. It renders as text. A control that silently
+does nothing until a restart is worse than no control.
+
 **Errors are pages.** A stale bookmark or a mistyped filter renders the normal
 shell with nav, not raw JSON. A bad value in a filter box is a 400 that blames
 the box, never a 500.

@@ -85,6 +85,24 @@ rather than a coin flip. A call that rests on a level comparison, or on wheels
 whose side is unknown, is marked with a `?` and carries its reasoning in the
 tooltip.
 
+## Settings
+
+Everything in `config.yaml` is editable at <http://localhost:8080/settings>.
+The page is generated from the config itself, so it is never out of step with
+what the file accepts.
+
+Saves take effect immediately — the log, the charts and the clock all re-read
+their settings on every request. Radio settings are the exception: the receiver
+reads those when it starts, so the page says so and offers the restart.
+
+The file is rewritten in place, with its explanatory comments regenerated from
+the same descriptions shown on the page, and the previous version kept beside
+it as `config.yaml.bak`. Notes of your own are worth keeping in a separate
+file, since a save rewrites the comments.
+
+`database` is shown but not editable: the running program holds a connection
+to the file it started with, so changing it needs an edit and a restart.
+
 ## Commands
 
 | Command | What it does |

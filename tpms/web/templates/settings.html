@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}Settings &middot; TPMS{% endblock %}
+{% block body %}
+{#
+  One form over the whole file. Every box posts together and the handler
+  parses all of them before assigning any, so a config that would not load is
+  turned down whole rather than half-written -- the running program and the
+  file on disk are never left saying different things.
+
+  The fields are generated from the config dataclasses, not listed here. A key
+  added to the config appears on this page without anyone remembering to add
+  it, and cannot be quietly missing from it either.
+#}
+<div class="page-head">
+  <div>
+    <h1>Settings</h1>
+    <p class="sub">
+      Written to <span class="mono">{{ write_path }}</span>.
+      {%- if untracked %} This file does not exist yet; saving creates it.{% endif %}
+    </p>
+  </div>
+  <form class="inline" method="post" data-busy="Restarting…"
+        action="/api/radio/restart">
+    <button type="submit">Restart receiver</button>
+  </form>
+</div>
+
+<form method="post" action="/api/settings" data-busy="Saving…">
+{% for group in groups %}
+<h2>{{ group.name | default('General', true) | replace('_', ' ') | title }}</h2>
+{% if group.help %}<p class="sub">{{ group.help }}</p>{% endif %}
+<div class="panel">
+  <div class="settings">
+    {% for s in group.settings %}
+    <div class="setting{{ ' read-only' if s.read_only }}">
+      <label for="set-{{ s.path }}">{{ s.label }}</label>
+      {% if s.read_only %}
+        {# Shown, never editable. Every component was handed a connection to
+           the old file at startup, so a box here would change where the next
+           run looks and nothing about this one. #}
+        <div class="value mono">{{ s.value }}</div>
+      {% elif s.kind == 'bool' %}
+        {# An unticked box posts nothing, so a companion field says the box
+           was on the form at all -- otherwise "off" and "not submitted" are
+           the same request and a checkbox could never be cleared. #}
+        <input type="hidden" name="seen:{{ s.path }}" value="1">
+        <input type="checkbox" id="set-{{ s.path }}" name="{{ s.path }}" value="1"
+               {{ 'checked' if s.value }}>
+      {% elif s.kind == 'list' %}
+        <input type="text" id="set-{{ s.path }}" name="{{ s.path }}"
+               value="{{ s.value | join(', ') if s.value else '' }}"
+               placeholder="comma separated">
+      {% else %}
+        <input type="{{ 'number' if s.kind in ('int', 'float') else 'text' }}"
+               {% if s.kind == 'float' %}step="any"{% endif %}
+               id="set-{{ s.path }}" name="{{ s.path }}"
+               value="{{ '' if s.value is none else s.value }}"
+               {% if s.optional %}placeholder="unset"{% endif %}>
+      {% endif %}
+      {% if s.help %}<p class="help">{{ s.help }}</p>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% if group.restart %}
+  <div class="row bulk">
+    <span class="muted">
+      The receiver reads these when it starts. Restart it after saving.
+    </span>
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+
+<div class="panel save-bar">
+  <div class="row">
+    <button class="primary" type="submit">Save settings</button>
+    <span class="muted">
+      Comments in the file are rewritten from these descriptions on every
+      save. The previous version is kept beside it as
+      <span class="mono">.bak</span>.
+    </span>
+  </div>
+</div>
+</form>
+{% endblock %}

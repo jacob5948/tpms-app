@@ -129,7 +129,7 @@
   {%- if heading -%}
   <span class="pill heading{{ ' tentative' if not heading.firm }}"
         title="{{ heading.basis }}{{ '' if heading.firm else ' — a guess, not a reading' }}">
-    {{- heading.name(direction_names) -}}
+    {{- heading.name(direction_names()) -}}
     {%- if not heading.firm %}?{% endif -%}
   </span>
   {%- else -%}<span class="muted">—</span>{%- endif -%}

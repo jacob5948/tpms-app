@@ -461,6 +461,31 @@ tbody tr:has(input[type="checkbox"][name="sensor"]:checked) td:first-child {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
+/* The settings grid. Label, control and reason in a column each, so forty
+   settings read as a list of decisions rather than a wall of boxes. */
+.settings { display: grid; gap: 2px; }
+.setting {
+  display: grid; grid-template-columns: 13rem minmax(0, 22rem) 1fr;
+  gap: 10px 16px; align-items: baseline;
+  padding: 10px 0; border-top: 1px solid var(--line);
+}
+.settings .setting:first-child { border-top: 0; }
+.setting > label { font-size: 13.5px; font-weight: 500; }
+.setting input[type="text"], .setting input[type="number"] { width: 100%; }
+.setting input[type="checkbox"] { justify-self: start; }
+.setting .value { font-size: 13px; color: var(--muted); }
+.setting .help { margin: 0; font-size: 12.5px; color: var(--muted); max-width: 60ch; }
+/* A setting the running process cannot adopt. Not disabled -- there is no
+   control to disable, because rendering a box that does nothing is the thing
+   this avoids. */
+.setting.read-only > label { color: var(--muted); }
+/* Forty settings is more than one screen, so the control that commits them
+   travels with the reader rather than living at the bottom of the page. */
+.save-bar { position: sticky; bottom: 12px; margin-top: 18px; }
+@media (max-width: 860px) {
+  .setting { grid-template-columns: 1fr; }
+}
+
 /* A direction the wheels agree on, and one the radio is guessing at. The
    tentative form is deliberately quieter and carries a "?" in the markup:
    an inference shown in the same weight as a measurement is read as one. */

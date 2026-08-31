@@ -8,8 +8,8 @@
   <link rel="stylesheet" href="/static/app.css">
   <!-- Every stamp on the page is written in this zone, charts included, so
        an axis and the table under it cannot disagree about what "9am" was.
-       Set it with `timezone:` in config.yaml. -->
-  <script>window.TPMS_TZ = {{ timezone | tojson }};</script>
+       Set it on the Settings page, or with `timezone:` in config.yaml. -->
+  <script>window.TPMS_TZ = {{ timezone() | tojson }};</script>
   <!-- Not deferred: the page scripts that draw charts run inline at the
        end of the body, which is before any deferred script executes. -->
   <script src="/static/vendor/uplot.iife.min.js"></script>
@@ -27,6 +27,7 @@
     <a href="/sensors"  class="{{ 'active' if nav == 'sensors' }}">Sensors</a>
     <a href="/events"   class="{{ 'active' if nav == 'events' }}">Log</a>
     <a href="/status"   class="{{ 'active' if nav == 'status' }}">Status</a>
+    <a href="/settings" class="{{ 'active' if nav == 'settings' }}">Settings</a>
   </nav>
   <span class="spacer"></span>
   <span class="pill" id="conn"><span class="dot off"></span>offline</span>
