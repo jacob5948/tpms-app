@@ -219,7 +219,10 @@
 <div class="panel">
   {% if intervals %}
   <div class="scroll"><table>
-    <thead><tr><th>First heard</th><th>Last heard</th><th class="num">Duration</th><th class="num">Wheels</th><th class="num">Readings</th></tr></thead>
+    {# Direction sits beside the wheel count it is read from: the two are one
+       fact, and a reader who doubts the heading looks straight at how many
+       wheels were heard. #}
+    <thead><tr><th>First heard</th><th>Last heard</th><th class="num">Duration</th><th>Direction</th><th class="num">Wheels</th><th class="num">Readings</th></tr></thead>
     <tbody>
       {% for i in intervals %}
       <tr>
@@ -229,6 +232,7 @@
           {%- else %}{{ i.ended_at | ago }}{% endif -%}
         </td>
         <td class="num" data-sort="{{ i.duration }}">{{ i.duration | duration }}</td>
+        {{ m.heading_cell(i.heading) }}
         <td class="num">{{ i.sensor_count }}</td>
         <td class="num">{{ i.reading_count }}</td>
       </tr>

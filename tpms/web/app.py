@@ -256,7 +256,9 @@ def create_app(service: Service) -> FastAPI:
             vehicle=vehicle,
             sensors=sensors,
             history=history,
-            intervals=q.vehicle_intervals(db, vehicle_id, gap(), limit=100),
+            intervals=q.vehicle_intervals(
+                db, vehicle_id, gap(), limit=100, rssi_margin=rssi_margin()
+            ),
             all_vehicles=[v for v in _vehicle_choices() if v.pk != vehicle_id],
         )
 
