@@ -169,6 +169,10 @@ def create_app(service: Service) -> FastAPI:
         flash = request.cookies.get(FLASH_COOKIE)
         context.setdefault("flash", unquote(flash) if flash else None)
         context.setdefault("flash_kind", request.cookies.get(FLASH_KIND_COOKIE) or "ok")
+        # On every page, not only Settings: a saved value that is not yet in
+        # force is a state the whole UI is in, and the flash that announced it
+        # is gone by the next click.
+        context.setdefault("restart_pending", list(service.restart_pending))
         response = templates.TemplateResponse(request, name, context)
         if flash:
             response.delete_cookie(FLASH_COOKIE, path="/")
@@ -375,6 +379,7 @@ def create_app(service: Service) -> FastAPI:
                     "name": setting.section,
                     "help": cfg.SECTION_HELP.get(setting.section or "", ""),
                     "restart": setting.section in cfg.NEEDS_RADIO_RESTART,
+                    "process_restart": setting.section in cfg.NEEDS_PROCESS_RESTART,
                     "settings": [],
                 }
                 index[setting.section] = group
@@ -445,9 +450,24 @@ def create_app(service: Service) -> FastAPI:
             )
 
         radio = sorted(p for p in changed if p.split(".")[0] in cfg.NEEDS_RADIO_RESTART)
+        process = sorted(
+            p for p in changed if p.split(".")[0] in cfg.NEEDS_PROCESS_RESTART
+        )
+        # Remembered on the service, not only said in the flash: the reminder
+        # has to outlive the next click, or a setting that is saved but not in
+        # force becomes invisible the moment the page changes.
+        for path in process:
+            if path not in service.restart_pending:
+                service.restart_pending.append(path)
+
         message = f"Saved {len(changed)} change{'' if len(changed) == 1 else 's'}."
         if radio:
             message += " Restart the receiver for the radio settings to take effect."
+        if process:
+            message += (
+                " Restart the service for "
+                f"{', '.join(process)} to take effect."
+            )
         return _back(request, here, message)
 
     # -- live feed --------------------------------------------------------
@@ -876,6 +896,23 @@ def create_app(service: Service) -> FastAPI:
     async def radio_restart(request: Request):
         service.radio.restart()
         return _back(request, "/status", "Receiver restarted.")
+
+    @app.post("/api/service/restart")
+    async def service_restart(request: Request):
+        """Restart the whole program, not just the receiver.
+
+        The narrower button covers everything the radio reads at startup; this
+        covers what only a new process reads -- the address the web server is
+        bound to, and a config file edited by hand outside this UI. The reply
+        goes out first and the exec follows a moment later, so the browser has
+        a page to reload rather than a dropped connection.
+        """
+        service.restart_pending.clear()
+        service.restart_process()
+        return _back(
+            request, "/settings",
+            "Restarting the service. This page will answer again in a moment.",
+        )
 
     @app.get("/api/export.csv")
     def export_csv(

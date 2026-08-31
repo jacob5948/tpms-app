@@ -32,7 +32,26 @@
   <span class="spacer"></span>
   <span class="pill" id="conn"><span class="dot off"></span>offline</span>
 </header>
-<main>{% block body %}{% endblock %}</main>
+<main>
+{% if restart_pending %}
+{# Saved, written to the file, and not in force until the program starts
+   again. Sitewide because the setting is saved sitewide, and it carries the
+   restart itself: a banner that states a problem and leaves you to find the
+   button is half a banner. #}
+<div class="note restart">
+  <strong>Restart needed.</strong>
+  {{ restart_pending | join(', ') }}
+  {{ 'is' if restart_pending | length == 1 else 'are' }} saved to the config
+  file, but the running service only reads
+  {{ 'it' if restart_pending | length == 1 else 'them' }} at startup.
+  <form class="inline" method="post" data-busy="Restarting…"
+        action="/api/service/restart"
+        data-confirm="Restart the service? Capture stops for a second or two and the page reloads.">
+    <button type="submit">Restart the service</button>
+  </form>
+</div>
+{% endif %}
+{% block body %}{% endblock %}</main>
 <div id="toasts" aria-live="polite"></div>
 {% if flash %}<div id="flash" hidden data-kind="{{ flash_kind | default('ok') }}">{{ flash }}</div>{% endif %}
 <script>

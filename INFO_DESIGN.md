@@ -230,6 +230,15 @@ to the old file at startup, so a box for it would change where the *next* run
 looks and nothing about this one. It renders as text. A control that silently
 does nothing until a restart is worse than no control.
 
+**A restart is offered where the setting that needs one is saved.** Most
+settings take effect on the next request, so the few that cannot must not look
+the same. The section says it is read at startup, the save says which values
+are waiting, and a banner carrying the button stays on every page until the
+service restarts — a reminder that vanishes on the next click is a setting
+that is quietly not in force. Restarting is an exec of this same program, not
+an exit: exiting is a restart under systemd and a shutdown in a terminal, and
+one button must not mean two things.
+
 **Errors are pages.** A stale bookmark or a mistyped filter renders the normal
 shell with nav, not raw JSON. A bad value in a filter box is a 400 that blames
 the box, never a 500.

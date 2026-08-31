@@ -531,6 +531,12 @@ READ_ONLY: frozenset[str] = frozenset({"database"})
 #: Sections whose values the receiver only reads when it starts.
 NEEDS_RADIO_RESTART: frozenset[str] = frozenset({"radio"})
 
+#: Sections whose values only a new *process* reads. The web server binds its
+#: address once, while uvicorn is starting, and nothing in a running program
+#: can move it -- so a saved port is a promise the page cannot keep until the
+#: service restarts, and the page has to say so and offer the restart.
+NEEDS_PROCESS_RESTART: frozenset[str] = frozenset({"web"})
+
 
 @dataclass(frozen=True)
 class Setting:

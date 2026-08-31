@@ -7,6 +7,8 @@ shared object rather than each building their own half of the pipeline.
 from __future__ import annotations
 
 import logging
+import os
+import sys
 import threading
 from typing import Any, Callable
 
@@ -43,6 +45,15 @@ class Service:
         )
         self._stop = threading.Event()
         self._workers: list[threading.Thread] = []
+        #: Settings saved that the running process cannot adopt, kept until it
+        #: is restarted. The pages read it, so the reminder survives the
+        #: navigation away from Settings that loses the flash message.
+        self.restart_pending: list[str] = []
+        self.restarting_at: float | None = None
+        #: The thread counting down to the exec, kept so a caller can wait on
+        #: it -- there is exactly one, and starting a second is the bug the
+        #: `restarting_at` guard exists to prevent.
+        self._restarter: threading.Thread | None = None
 
     # -- lifecycle --------------------------------------------------------
 
@@ -62,6 +73,44 @@ class Service:
         for worker in self._workers:
             worker.join(timeout=5)
         self._workers.clear()
+
+    def restart_process(self, delay: float = 0.75) -> None:
+        """Replace this process with a fresh one, once the reply is out.
+
+        Some settings are only read while the program is starting -- the web
+        server's address, above all -- so saving them and staying up leaves a
+        page insisting on a port nothing is listening on. The Settings page can
+        say "restart"; this is what lets it do it.
+
+        An exec rather than an exit, so it works the same whether a supervisor
+        is watching or someone is running `tpms serve` in a terminal: exiting
+        would be a restart under systemd and a shutdown everywhere else, which
+        is the sort of button that does different things on different machines.
+        The delay is for the HTTP response -- the caller is a request handler,
+        and an exec mid-reply is a restart the user only sees as a dead tab.
+        """
+        if self.restarting_at is not None:
+            return                      # already on its way; do not queue two
+        self.restarting_at = now_ts()
+        argv = [sys.executable, *sys.argv]
+        log.info("restart requested; re-exec in %.1fs: %s", delay, " ".join(argv))
+
+        def run() -> None:
+            # Its own event, not self._stop: that one is already set when the
+            # service was never started, which would exec before the reply.
+            threading.Event().wait(delay)
+            try:
+                # Let go of the dongle and close the database: the new image
+                # claims both within milliseconds, and a WAL left mid-write is
+                # a restart that costs readings.
+                self.stop()
+                self.db.close()
+            except Exception:  # noqa: BLE001
+                log.exception("restart cleanup failed; execing anyway")
+            os.execv(argv[0], argv)
+
+        self._restarter = threading.Thread(target=run, name="restarter", daemon=True)
+        self._restarter.start()
 
     def _spawn(self, target: Callable[[], None], name: str) -> None:
         thread = threading.Thread(target=target, name=name, daemon=True)

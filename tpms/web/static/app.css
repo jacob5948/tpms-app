@@ -559,6 +559,13 @@ button.link:hover { color: var(--accent); }
 .status-head { margin-bottom: 14px; }
 .status-state { font-size: 15px; }
 .note.status-note { margin-top: 14px; }
+/* The sitewide "saved but not in force" banner. It carries its own button,
+   so the text and the action sit on one line and wrap together. */
+.note.restart {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  max-width: none;
+}
+.note.restart form { margin-left: auto; }
 pre.mono.block {
   background: var(--panel-2); padding: 12px; border-radius: 8px;
   overflow-x: auto; margin: 0;

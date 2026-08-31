@@ -92,8 +92,15 @@ The page is generated from the config itself, so it is never out of step with
 what the file accepts.
 
 Saves take effect immediately — the log, the charts and the clock all re-read
-their settings on every request. Radio settings are the exception: the receiver
-reads those when it starts, so the page says so and offers the restart.
+their settings on every request. Two kinds of setting are read only at startup,
+and for both the page says so and offers the restart:
+
+- **Radio settings.** The receiver reads them when it launches `rtl_433`, so
+  **Restart receiver** is enough; capture pauses for a second.
+- **Web settings** (`web.host`, `web.port`). The server binds its address once,
+  while the program is starting, so these need **Restart the service** — the
+  whole process re-execs itself, and the reminder banner stays on every page
+  until it does. The browser reconnects on its own unless you moved the port.
 
 The file is rewritten in place, with its explanatory comments regenerated from
 the same descriptions shown on the page, and the previous version kept beside
@@ -101,7 +108,8 @@ it as `config.yaml.bak`. Notes of your own are worth keeping in a separate
 file, since a save rewrites the comments.
 
 `database` is shown but not editable: the running program holds a connection
-to the file it started with, so changing it needs an edit and a restart.
+to the file it started with, so changing it needs an edit of the file and a
+restart from the button above.
 
 ## Commands
 

@@ -20,10 +20,20 @@
       {%- if untracked %} This file does not exist yet; saving creates it.{% endif %}
     </p>
   </div>
-  <form class="inline" method="post" data-busy="Restarting…"
-        action="/api/radio/restart">
-    <button type="submit">Restart receiver</button>
-  </form>
+  {# Two scopes, named for what each one costs. The receiver is the cheap
+     one and covers the radio section; the service is the whole program, and
+     is the only thing that re-reads the settings a new process reads. #}
+  <div class="row">
+    <form class="inline" method="post" data-busy="Restarting…"
+          action="/api/radio/restart">
+      <button type="submit">Restart receiver</button>
+    </form>
+    <form class="inline" method="post" data-busy="Restarting…"
+          action="/api/service/restart"
+          data-confirm="Restart the whole service? Capture stops for a second or two and the page reloads.">
+      <button type="submit">Restart the service</button>
+    </form>
+  </div>
 </div>
 
 <form method="post" action="/api/settings" data-busy="Saving…">
@@ -66,6 +76,13 @@
   <div class="row bulk">
     <span class="muted">
       The receiver reads these when it starts. Restart it after saving.
+    </span>
+  </div>
+  {% elif group.process_restart %}
+  <div class="row bulk">
+    <span class="muted">
+      Read once, while the program is starting. Saving writes the file;
+      restarting the service is what puts it into effect.
     </span>
   </div>
   {% endif %}
