@@ -192,7 +192,21 @@ class Scorecard:
                 "too noisy: ID-near pairs are common among sensors never heard "
                 "together, so proximity is mostly coincidence here"
             )
-        return "weak: ID proximity misses most pairs co-occurrence is sure about"
+        # "Misses most" is a claim about a majority, and it stopped being true
+        # somewhere in this band -- a real capture read 58% here and was told
+        # proximity missed most of what it had in fact found. Below half the
+        # sentence is right; above it, quote the figure and let it speak.
+        if recall >= 0.5:
+            return (
+                f"just short of usable: {recall:.0%} of the pairs co-occurrence "
+                f"is sure about are ID-near, against {noise:.1%} of pairs never "
+                "heard together. Sound as a tie-breaker, which is all it is "
+                "ever asked to be -- it decides nothing on its own."
+            )
+        return (
+            f"weak: only {recall:.0%} of the pairs co-occurrence is sure about "
+            "are ID-near, so proximity misses most of them"
+        )
 
 
 def evaluate(

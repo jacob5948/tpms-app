@@ -145,6 +145,18 @@ def test_a_signal_that_misses_most_real_pairs_is_called_weak():
         confirmed_pairs=10, confirmed_near=3, apart_pairs=100, apart_near=1
     )
     assert "weak" in card.verdict()
+    assert "misses most" in card.verdict()
+
+
+def test_a_signal_that_finds_most_pairs_is_not_told_it_misses_them():
+    """The band between "weak" and "usable". A real capture scored 58% here
+    and was told ID proximity missed most of what it had just found -- a claim
+    about a majority, made where there was not one."""
+    card = idfamily.Scorecard(
+        confirmed_pairs=100, confirmed_near=58, apart_pairs=1000, apart_near=5
+    )
+    assert "misses most" not in card.verdict()
+    assert "58%" in card.verdict() and "tie-breaker" in card.verdict()
 
 
 def test_evaluate_scores_a_real_capture(service_with_history):
