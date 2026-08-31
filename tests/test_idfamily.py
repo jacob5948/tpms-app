@@ -199,3 +199,73 @@ def test_recall_and_its_control_come_from_one_population(ingestor, db):
     card = idfamily.evaluate(db, ClusterConfig())
     assert card.confirmed_cross_decoder, "the Ford/Toyota pairs must be set aside"
     assert card.recall == 1.0, "every same-decoder confirmed pair is ID-near"
+
+
+# -- the density cap ------------------------------------------------------
+
+def _many(model, ids, first_pk=1):
+    return [_sensor(pk, model, sensor_id) for pk, sensor_id in enumerate(ids, first_pk)]
+
+
+def _spread(count, width, digits):
+    """`count` ids spread evenly across a space `digits` hex digits wide."""
+    step = (16 ** digits) // (count + 1)
+    return [format(step * (i + 1), f"0{digits}x") for i in range(count)]
+
+
+def _limits(sensors, max_distance=65536, limit=0.02):
+    return idfamily.thresholds(
+        idfamily._parsed(sensors), max_distance, limit,
+        ids={s.pk: s.sensor_id for s in sensors},
+    )
+
+
+def test_a_narrow_id_space_is_capped_tighter_than_a_wide_one():
+    """65536 was measured on 32-bit IDs. Renault prints six hex digits, so the
+    same number covers a 256th of everything it can address: with fifty of them
+    heard, a sensor has better than a one in three chance of finding an
+    unrelated "neighbour", which is coincidence rather than evidence.
+    """
+    sensors = _many("Renault", _spread(50, None, 6)) + _many(
+        "Toyota", _spread(50, None, 8), first_pk=101
+    )
+    limits = _limits(sensors)
+    assert limits["Toyota"] == 65536, "a wide, sparse space keeps the measured number"
+    assert limits["Renault"] == int(0.02 * 16 ** 6 / (2 * 49))
+    assert limits["Renault"] < 65536 / 10
+
+
+def test_the_cap_still_clears_the_widest_genuine_set_observed():
+    """Renault 73041b/7309cc, 1457 apart, is one car -- so scaling by ID width
+    alone (65536 / 256 = 256) would cut straight through it. The cap is on
+    coincidence instead, which leaves room for the sets that exist."""
+    sensors = _many("Renault", _spread(48, None, 6) + ["73041b", "7309cc"])
+    parsed = idfamily._parsed(sensors)
+    a, b = len(sensors) - 1, len(sensors)
+    assert idfamily.id_distance(parsed[a][1], parsed[b][1]) == 1457
+    assert idfamily.are_near(parsed, a, b, 65536, _limits(sensors))
+
+
+def test_the_cap_rejects_a_coincidence_the_flat_distance_accepted():
+    """Two Renault sensors 20000 apart share nothing but a crowded space."""
+    sensors = _many("Renault", _spread(48, None, 6) + ["300000", "304e20"])
+    parsed = idfamily._parsed(sensors)
+    a, b = len(sensors) - 1, len(sensors)
+    assert idfamily.id_distance(parsed[a][1], parsed[b][1]) == 20000
+    assert idfamily.are_near(parsed, a, b, 65536), "the flat distance calls these near"
+    assert not idfamily.are_near(parsed, a, b, 65536, _limits(sensors))
+
+
+def test_the_cap_never_scales_consecutive_ids_apart():
+    """Contiguous IDs are the strongest form of the whole signal, so a crowded
+    space must not be able to throw them away."""
+    sensors = _many("Renault", _spread(3000, None, 6) + ["abc123", "abc124"])
+    limits = _limits(sensors)
+    assert limits["Renault"] == idfamily.MIN_MAX_DISTANCE
+    parsed = idfamily._parsed(sensors)
+    assert idfamily.are_near(parsed, 3001, 3002, 65536, limits)
+
+
+def test_the_cap_can_be_turned_off():
+    sensors = _many("Renault", _spread(50, None, 6))
+    assert _limits(sensors, limit=0.0) == {}

@@ -115,6 +115,19 @@ clustering:
   # 10042 apart; unrelated sensors were millions apart.
   id_max_distance: 65536
 
+  # That number was measured on 32-bit IDs. Decoders print different widths --
+  # Renault six hex digits, Toyota eight -- and in a 24-bit space 65536 either
+  # side of an ID covers a 256th of everything, so with fifty of them heard a
+  # sensor is better than a one-in-three shot to find an unrelated "neighbour".
+  #
+  # So each decoder's distance is capped at the point where it would expect
+  # this many unrelated ID-near neighbours per sensor, given how many of that
+  # decoder have actually been heard. Wide sparse spaces keep the full 65536;
+  # narrow crowded ones tighten to match. `tpms ids --sweep` prints the caps in
+  # force and scores the capture with them off, so the default is checkable.
+  # 0 turns it off and applies one distance to every decoder.
+  id_coincidence_limit: 0.02
+
   # Group sensors heard together in a SINGLE pass when they look like one
   # vehicle: same decoder, comparable signal level. Most vehicles on a public
   # road are only ever heard once, so with this off they never group at all.

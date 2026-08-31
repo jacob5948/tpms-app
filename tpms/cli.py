@@ -358,7 +358,17 @@ def cmd_ids(args: argparse.Namespace) -> int:
     card = idfamily.evaluate(db, config.clustering, max_distance)
     displays = {s.pk: s.display for s in db.list_sensors()}
 
-    print(f"comparing IDs within a decoder, up to {max_distance} apart\n")
+    print(f"comparing IDs within a decoder, up to {max_distance} apart")
+    if card.limits:
+        # A threshold that varies invisibly is worse than one that is merely
+        # wrong, so the capped decoders are named and the arithmetic is shown.
+        print("  capped tighter where the decoder's ID space is too crowded "
+              f"for that (limit {config.clustering.id_coincidence_limit:g} "
+              "unrelated neighbour(s) per sensor):")
+        for model, allowed in sorted(card.limits.items()):
+            if allowed < max_distance:
+                print(f"    {model:18} {allowed}")
+    print()
 
     if card.families:
         print(f"candidate wheel sets by ID alone: {len(card.families)}")
@@ -392,6 +402,7 @@ def cmd_ids(args: argparse.Namespace) -> int:
         print(f"  {'distance':>10}  {'recall':>7}  {'false pos':>9}  wheel sets")
         for distance in (1 << shift for shift in range(8, 21, 2)):
             other = idfamily.evaluate(db, config.clustering, distance)
+            capped = sum(1 for v in other.limits.values() if v < distance)
             recall = "n/a" if other.recall is None else f"{other.recall:.0%}"
             noise = (
                 "n/a" if other.false_positive_rate is None
@@ -399,7 +410,20 @@ def cmd_ids(args: argparse.Namespace) -> int:
             )
             mark = "  <- configured" if distance == max_distance else ""
             print(f"  {distance:>10}  {recall:>7}  {noise:>9}  "
-                  f"{len(other.families):>10}{mark}")
+                  f"{len(other.families):>10}{mark}"
+                  + (f"  ({capped} decoder(s) capped tighter)" if capped else ""))
+        # The decisive comparison for the cap itself: the same distance, with
+        # and without it. A default nobody can check is a default nobody
+        # should trust.
+        if config.clustering.id_coincidence_limit:
+            flat = replace(config.clustering, id_coincidence_limit=0.0)
+            off = idfamily.evaluate(db, flat, max_distance)
+            print(f"\n  at {max_distance}, with the per-decoder cap off: "
+                  f"recall {'n/a' if off.recall is None else format(off.recall, '.0%')}, "
+                  f"false pos "
+                  f"{'n/a' if off.false_positive_rate is None else format(off.false_positive_rate, '.1%')}, "
+                  f"{len(off.families)} wheel sets")
+
         print("\n  Want recall high and false positives near zero. Where both "
               "hold over a\n  range of distances, take the low end: the widest "
               "genuine pair measured\n  in the field was 10042 apart, and every "
@@ -414,7 +438,11 @@ def cmd_ids(args: argparse.Namespace) -> int:
                 if parsed[a][0] != parsed[b][0]:
                     continue
                 distance = idfamily.id_distance(parsed[a][1], parsed[b][1])
-                mark = "near" if distance <= max_distance else "    "
+                mark = (
+                    "near"
+                    if idfamily.are_near(parsed, a, b, max_distance, card.limits)
+                    else "    "
+                )
                 shared = common_hex_run(
                     db.get_sensor(a).sensor_id, db.get_sensor(b).sensor_id
                 )

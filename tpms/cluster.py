@@ -108,6 +108,7 @@ class Clusterer:
         self.db = db
         self.config = config or ClusterConfig()
         self._ids: dict[int, tuple[str, int]] | None = None
+        self._id_limits: dict[str, int] = {}
 
     # -- graph ------------------------------------------------------------
 
@@ -196,17 +197,26 @@ class Clusterer:
         missing map is indistinguishable from "no ids parsed".
         """
         if self._ids is None:
-            self._ids = (
-                idfamily._parsed(self.db.list_sensors())
-                if self.config.id_adjacency
-                else {}
+            sensors = self.db.list_sensors() if self.config.id_adjacency else []
+            self._ids = idfamily._parsed(sensors)
+            # Per decoder, because one distance across ID spaces of different
+            # widths is a different question wearing the same clothes. See
+            # idfamily.thresholds.
+            self._id_limits = idfamily.thresholds(
+                self._ids,
+                self.config.id_max_distance,
+                self.config.id_coincidence_limit,
+                ids={s.pk: s.sensor_id for s in sensors},
             )
         return self._ids
 
     def _ids_adjacent(self, a: int, b: int) -> bool:
         if not self.config.id_adjacency:
             return False
-        return idfamily.are_near(self._id_map(), a, b, self.config.id_max_distance)
+        parsed = self._id_map()  # also builds the per-decoder limits
+        return idfamily.are_near(
+            parsed, a, b, self.config.id_max_distance, self._id_limits
+        )
 
     def _profiles(self) -> dict[int, tuple[set[str], float | None]]:
         """Decoders that produced each sensor, and its mean signal level.
@@ -284,7 +294,9 @@ class Clusterer:
             uf.find(pk)
         for i, a in enumerate(known):
             for b in known[i + 1:]:
-                if idfamily.are_near(parsed, a, b, self.config.id_max_distance):
+                if idfamily.are_near(
+                    parsed, a, b, self.config.id_max_distance, self._id_limits
+                ):
                     uf.union(a, b)
         return len(uf.groups()) > 1
 

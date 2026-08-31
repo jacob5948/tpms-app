@@ -221,6 +221,28 @@ false-positive rate against same-decoder pairs never heard together — and
 declines to give a verdict at all until the sample is big enough to mean
 something. Set `clustering.id_adjacency: false` if it does not hold up for you.
 
+`id_max_distance` was measured on 32-bit IDs, and decoders do not all print
+32-bit IDs: Renault writes six hex digits where Toyota writes eight, a space
+256 times smaller. The same 65536 that is a thousandth of a percent of the
+Toyota space covers 0.8% of the Renault one, so with fifty Renault sensors
+heard, any one of them is better than a one-in-three shot to find an unrelated
+"neighbour" — coincidence wearing the shape of evidence.
+
+Each decoder's distance is therefore capped at the point where it would expect
+`clustering.id_coincidence_limit` unrelated ID-near neighbours per sensor,
+given how many of that decoder have been heard. A wide, sparse space keeps the
+measured number; a narrow crowded one tightens to match, and tightens further
+as the capture grows — which is right, because more sensors is more chances to
+collide. The cap is on coincidence rather than on width directly, because
+manufacturers allocate a wheel set a block of roughly the same absolute size
+whatever their ID width: scaling by width would divide Renault's 65536 by 256
+and cut through sets observed to span 1457. Consecutive IDs are never scaled
+apart, whatever the density.
+
+`tpms ids --sweep` prints the caps in force, scores several distances, and
+scores the capture again with the cap off, so the default can be checked
+rather than believed.
+
 ### Resident sensors
 
 A sensor parked within range behaves nothing like passing traffic: on a real
@@ -362,6 +384,7 @@ likely to touch:
 | `clustering.min_support` | `0.6` | Raise it if unrelated vehicles are merging. |
 | `clustering.single_pass` | `true` | Group vehicles seen only once, marked provisional. |
 | `clustering.id_adjacency` | `true` | Use near-consecutive sensor IDs as a second signal. |
+| `clustering.id_coincidence_limit` | `0.02` | Per decoder, tighten the ID distance until coincidences are this rare. |
 | `clustering.resident_duty_cycle` | `0.5` | Above this, a sensor is parked in range, not passing. |
 | `aliases.min_share_ratio` | `0.5` | Lower it if duplicate decodes are not being merged. |
 

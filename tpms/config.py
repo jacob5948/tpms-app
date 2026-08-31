@@ -74,6 +74,12 @@ DEFAULTS: dict[str, Any] = {
         # it; the widest genuine pair seen so far was 10042 apart.
         "id_adjacency": True,
         "id_max_distance": 65536,
+        # 65536 was measured on 32-bit ids. A decoder printing six hex digits
+        # has a space 256 times smaller, where the same distance is mostly
+        # coincidence -- so each decoder's distance is capped at the point
+        # where it would expect this many unrelated neighbours per sensor.
+        # 0 applies one distance to every decoder.
+        "id_coincidence_limit": 0.02,
         # A sensor audible this share of the time, over at least this long, is
         # parked in range rather than driving past. It co-occurs with all
         # passing traffic, so it is not allowed to seed a single-pass grouping.
@@ -191,6 +197,12 @@ class ClusterConfig:
     #: been heard together.
     id_adjacency: bool = True
     id_max_distance: int = 65536
+    #: Cap ``id_max_distance`` per decoder at the distance that would produce
+    #: this many unrelated ID-near neighbours per sensor, expected. 65536 was
+    #: measured on 32-bit IDs; in the 24-bit space Renault prints it covers a
+    #: 256th of everything, which is coincidence rather than evidence. 0 turns
+    #: the cap off and applies one distance to every decoder.
+    id_coincidence_limit: float = 0.02
     #: Share of its observed window a sensor must be audible to count as
     #: resident, and the shortest window over which that means anything.
     resident_duty_cycle: float = 0.5
@@ -457,7 +469,15 @@ FIELD_HELP: dict[str, str] = {
         "Treat near-consecutive IDs from one decoder as evidence of one wheel "
         "set. Measure it against your own capture with `tpms ids` first."
     ),
+    "clustering.id_coincidence_limit": (
+        "Per decoder, cap the distance above at the point where it would find "
+        "this many unrelated ID-near neighbours per sensor. 0 turns it off."
+    ),
     "clustering.id_max_distance": "How far apart two IDs may be and still count as adjacent.",
+    "clustering.id_coincidence_limit": (
+        "Per decoder, cap the distance above at the point where it would find "
+        "this many unrelated ID-near neighbours per sensor. 0 turns it off."
+    ),
     "clustering.resident_duty_cycle": (
         "Audible this share of the time and a sensor is parked in range rather "
         "than driving past, so it is not allowed to seed a one-pass grouping."

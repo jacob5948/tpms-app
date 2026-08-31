@@ -82,6 +82,77 @@ class Family:
         return len(self.members)
 
 
+#: A decoder's threshold is never scaled below this. Consecutive IDs are the
+#: strongest form of the whole signal, and a rule that could scale them apart
+#: would throw away the evidence the module exists for.
+MIN_MAX_DISTANCE = 64
+
+
+def id_space(ids: list[str], convention: str) -> int:
+    """How many IDs the widest one this decoder prints could address.
+
+    Decoders print a fixed field, so the width is the decoder's, not the
+    sensor's: Renault writes six hex digits and Toyota eight, which is a 24-bit
+    space against a 32-bit one -- 256 times smaller, for the same decoders whose
+    wheel sets sit a comparable *absolute* distance apart.
+    """
+    widest = max((len(s.strip().lower().removeprefix("0x")) for s in ids), default=0)
+    if not widest:
+        return 0
+    return (16 if convention == "hex" else 10) ** widest
+
+
+def thresholds(
+    parsed: dict[int, tuple[str, int]],
+    max_distance: int = DEFAULT_MAX_DISTANCE,
+    coincidence_limit: float = 0.0,
+    ids: dict[int, str] | None = None,
+) -> dict[str, int]:
+    """The distance to allow per decoder, capped by how dense its space is.
+
+    ``max_distance`` was measured on 32-bit IDs -- the widest genuine pair in
+    the field was Ford 36c17f56/36c1581c, 10042 apart -- and applying that one
+    number to a decoder printing six hex digits is a different question wearing
+    the same clothes. In a 24-bit space, 65536 either side of an ID covers 0.8%
+    of everything; with the fifty Renault sensors in one real capture, a given
+    one had better than a one in three chance of finding an unrelated
+    "neighbour". That is where a seven-member Renault "wheel set" came from.
+
+    So the cap is on coincidence rather than on width directly: allow at most
+    ``coincidence_limit`` unrelated neighbours per sensor, expected, given the
+    sensors of that decoder actually heard --
+
+        (n - 1) * 2 * distance / space <= limit
+
+    -- which leaves a wide, sparsely populated space at the configured
+    distance and tightens a narrow crowded one to match. It also tightens as a
+    capture grows, which is correct: more sensors is more chances to collide.
+
+    Scaling by width alone would not do: manufacturers allocate a wheel set a
+    block of roughly the same absolute size whatever their ID width, so
+    dividing by 256 for Renault (65536 -> 256) would cut through sets observed
+    to span 1457.
+    """
+    if coincidence_limit <= 0:
+        return {}
+    by_model: dict[str, list[int]] = {}
+    for pk, (model, value) in parsed.items():
+        by_model.setdefault(model, []).append(pk)
+
+    out: dict[str, int] = {}
+    for model, pks in by_model.items():
+        if ids is None or len(pks) < 2:
+            continue
+        texts = [ids[pk] for pk in pks if pk in ids]
+        convention = detect_convention(texts)
+        space = id_space(texts, convention)
+        if not space:
+            continue
+        allowed = coincidence_limit * space / (2 * (len(pks) - 1))
+        out[model] = max(MIN_MAX_DISTANCE, min(max_distance, int(allowed)))
+    return out
+
+
 def _parsed(sensors: list[Sensor]) -> dict[int, tuple[str, int]]:
     """sensor pk -> (model, parsed id), skipping anything unparseable."""
     by_model: dict[str, list[Sensor]] = {}
@@ -101,31 +172,46 @@ def _parsed(sensors: list[Sensor]) -> dict[int, tuple[str, int]]:
 
 
 def are_near(
-    parsed: dict[int, tuple[str, int]], a: int, b: int, max_distance: int = DEFAULT_MAX_DISTANCE
+    parsed: dict[int, tuple[str, int]],
+    a: int,
+    b: int,
+    max_distance: int = DEFAULT_MAX_DISTANCE,
+    limits: dict[str, int] | None = None,
 ) -> bool:
     """Whether two sensors look like one wheel set by ID alone.
 
     Cross-decoder comparison is meaningless -- two makers' numbering schemes
     have nothing to say about each other -- so a differing model is never near.
+
+    ``limits`` is the per-decoder cap from ``thresholds``; a decoder absent
+    from it is judged at ``max_distance``, which is also the whole behaviour
+    when no limits are supplied.
     """
     left, right = parsed.get(a), parsed.get(b)
     if left is None or right is None or left[0] != right[0]:
         return False
-    return id_distance(left[1], right[1]) <= max_distance
+    allowed = (limits or {}).get(left[0], max_distance)
+    return id_distance(left[1], right[1]) <= allowed
 
 
 def families(
-    sensors: list[Sensor], max_distance: int = DEFAULT_MAX_DISTANCE
+    sensors: list[Sensor],
+    max_distance: int = DEFAULT_MAX_DISTANCE,
+    coincidence_limit: float = 0.0,
 ) -> list[Family]:
     """Group sensors into candidate wheel sets by ID proximity alone."""
     from .cluster import UnionFind  # imported here: cluster imports this module
 
     parsed = _parsed(sensors)
+    limits = thresholds(
+        parsed, max_distance, coincidence_limit,
+        ids={s.pk: s.sensor_id for s in sensors},
+    )
     uf = UnionFind()
     pks = [s.pk for s in sensors if s.pk in parsed]
     for i, a in enumerate(pks):
         for b in pks[i + 1:]:
-            if are_near(parsed, a, b, max_distance):
+            if are_near(parsed, a, b, max_distance, limits):
                 uf.union(a, b)
 
     out = []
@@ -155,6 +241,10 @@ class Scorecard:
     apart_pairs: int = 0
     apart_near: int = 0
     families: list[Family] = field(default_factory=list)
+    #: The distance actually allowed per decoder, once the density cap has had
+    #: its say. Reported because a threshold that varies invisibly is worse
+    #: than one that is merely wrong.
+    limits: dict[str, int] = field(default_factory=dict)
     #: Below this many confirmed pairs, the recall figure is not worth quoting.
     min_sample: int = 8
 
@@ -231,7 +321,14 @@ def evaluate(
     cfg = config or ClusterConfig()
     sensors = [s for s in db.list_sensors() if s.alias_of is None]
     parsed = _parsed(sensors)
-    card = Scorecard(families=families(sensors, max_distance))
+    limits = thresholds(
+        parsed, max_distance, cfg.id_coincidence_limit,
+        ids={s.pk: s.sensor_id for s in sensors},
+    )
+    card = Scorecard(
+        families=families(sensors, max_distance, cfg.id_coincidence_limit),
+        limits=limits,
+    )
 
     clusterer = Clusterer(db, cfg)
     eligible = {s.pk for s in sensors}
@@ -245,7 +342,7 @@ def evaluate(
             card.confirmed_cross_decoder += 1
             continue
         card.confirmed_pairs += 1
-        if are_near(parsed, edge.a, edge.b, max_distance):
+        if are_near(parsed, edge.a, edge.b, max_distance, limits):
             card.confirmed_near += 1
 
     # Every co-occurring pair, confirmed or not, is excluded from the control:
@@ -260,6 +357,6 @@ def evaluate(
             if (a, b) in heard_together or parsed[a][0] != parsed[b][0]:
                 continue
             card.apart_pairs += 1
-            if are_near(parsed, a, b, max_distance):
+            if are_near(parsed, a, b, max_distance, limits):
                 card.apart_near += 1
     return card
