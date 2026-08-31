@@ -40,6 +40,13 @@ did before claiming a UI change is verified.
 
 ## House style
 
-Commit messages and code comments here say *why*, in prose, and name what went
-wrong before. Match the surrounding voice rather than a conventional-commits
-prefix. Tests are named as sentences about the rule they defend.
+**Commit messages are plain.** Subject: what changed, stated directly — "Show
+travel direction in the vehicle pass history", not an epigram about it. Body:
+what was wrong, what the change does, anything a reader needs to know. No
+aphorisms, no wordplay, no rhetorical build-up. If a sentence exists to sound
+good rather than to inform, cut it.
+
+Do not take the tone of existing commits as the model — the log drifted into
+copywriting over several sessions and is being corrected, not continued.
+
+Tests are named as sentences about the rule they defend.
