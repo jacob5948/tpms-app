@@ -6,6 +6,8 @@ sightings stay a peer view, because matching a car you watched pass to the
 transmitters audible at that moment is done against the unmerged rows.
 """
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -178,3 +180,34 @@ def test_the_vehicle_page_counts_the_passes_the_log_counts(client, service):
     )
     body = client.get(f"/vehicles/{vehicle.pk}").text
     assert f"{len(passes)} pass" in body
+
+
+def test_a_pass_heard_on_one_wheel_can_still_be_opened(client, service):
+    """The expander appeared only above one sighting, so the pass with the
+    least on its row -- one wheel, no fraction to read -- was the one row that
+    could not be opened to see which wheel it was."""
+    rows = q.vehicle_passes(service.db, GAP, limit=5000)
+    single = [p for p in rows if len(p["sightings"]) == 1]
+    assert single, "synthetic data should include a one-wheel pass"
+
+    body = client.get("/events").text
+    assert "1 sighting\n" in body, "no singular label, so no one-wheel expander"
+
+    assert body.count('class="sub-rows"') == body.count('class="expander"'), (
+        "every pass that offers to open has a row to open, and the reverse"
+    )
+
+
+def test_the_expander_reads_as_a_control(client):
+    """A bare underlined count sat in a row of counts and said nothing about
+    opening. It is a bordered toggle with a caret that turns."""
+    body = client.get("/events").text
+    assert 'class="expander"' in body
+    assert 'aria-expanded="false"' in body
+    assert "caret" in body
+    css = (
+        Path(__file__).resolve().parents[1] / "tpms" / "web" / "static" / "app.css"
+    ).read_text()
+    assert 'button.expander[aria-expanded="true"] .caret' in css, (
+        "nothing tells the reader the open row is open"
+    )

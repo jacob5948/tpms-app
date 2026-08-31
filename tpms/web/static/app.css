@@ -534,6 +534,19 @@ button.link {
 }
 button.link:hover { color: var(--accent); }
 
+/* The control that opens the sightings behind a pass. It has to look like a
+   control: the caret says the row opens, and it turns to say the row is open. */
+button.expander {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: 1px solid var(--line); border-radius: 999px;
+  padding: 2px 10px 2px 8px; font: inherit; font-size: 12.5px;
+  color: var(--muted); cursor: pointer; white-space: nowrap;
+}
+button.expander:hover { color: var(--accent); border-color: var(--accent); }
+button.expander .caret { transition: transform 120ms ease; font-size: 13px; line-height: 1; }
+button.expander[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+button.expander[aria-expanded="true"] .caret { transform: rotate(90deg); }
+
 /* The current value beside the control that changes it. */
 .current { font-size: 16px; margin-top: 2px; }
 

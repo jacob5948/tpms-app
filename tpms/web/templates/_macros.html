@@ -159,16 +159,24 @@
   which is the correct fallback for "the evidence behind this row".
 #}
 {% macro expand_button(row_id, count) %}
-{% if count > 1 %}
-<button type="button" class="link" data-expand="{{ row_id }}"
-        aria-expanded="false" aria-controls="{{ row_id }}">
-  {{ count }} sightings
+{% if count %}
+{# A caret and a border, not an underlined count. As a bare number-and-word it
+   read as a value in a column of values -- the thing it looks most like is
+   the "Readings" cell two along -- and nothing said the row would open. #}
+<button type="button" class="expander" data-expand="{{ row_id }}"
+        aria-expanded="false" aria-controls="{{ row_id }}"
+        title="Show the sightings behind this pass">
+  <span class="caret" aria-hidden="true">&#9656;</span>
+  {{ count }} sighting{{ '' if count == 1 else 's' }}
 </button>
 {% endif %}
 {% endmacro %}
 
 {% macro sightings_rows(sightings, row_id, colspan) %}
-{% if sightings | length > 1 %}
+{# Down to one: a pass heard on a single wheel is the one where "which wheel,
+   how loud, on what band" is least obvious from the row above, and it was the
+   one row that could not be opened. #}
+{% if sightings %}
 <tr class="sub-rows" id="{{ row_id }}" data-nosort>
   <td colspan="{{ colspan }}">
     <table class="inner">
