@@ -239,6 +239,13 @@ that is quietly not in force. Restarting is an exec of this same program, not
 an exit: exiting is a restart under systemd and a shutdown in a terminal, and
 one button must not mean two things.
 
+**A UI change is checked in a browser.** Charts, expanding rows, the bar that
+appears on the first tick and every save that does not reload the page exist
+only after script has run, so reading the served HTML is not evidence any of
+them work. `tests/test_browser.py` drives a real browser and fails on a console
+error; `scripts/uishot.py` takes the picture for the questions a test cannot
+answer. Both run over synthetic data, so neither needs a receiver.
+
 **Errors are pages.** A stale bookmark or a mistyped filter renders the normal
 shell with nav, not raw JSON. A bad value in a filter box is a 400 that blames
 the box, never a 500.

@@ -633,3 +633,34 @@ run; install `rtl_433` or set `radio.binary` to its full path.
 No hardware required — the suite drives the real pipeline with synthetic data,
 including a scenario with a decoy sensor that must *not* get absorbed into a
 neighbouring vehicle's cluster.
+
+### The UI is tested in a browser
+
+Half of what these pages do only exists once script has run: the charts are
+drawn from fetched JSON, pass rows expand, the bulk bar appears on the first
+tick, and saves are posted without leaving the page. A string in the HTML says
+nothing about any of it, so `tests/test_browser.py` drives the real thing with
+Playwright. Each of those tests also fails on a console error, which is how a
+page that renders and quietly does nothing gets caught.
+
+```bash
+.venv/bin/pip install -e '.[dev]'
+.venv/bin/playwright install chromium   # once
+.venv/bin/pytest tests/test_browser.py
+```
+
+They skip themselves, with the command to fix it, when playwright or its
+browser is missing — the rest of the suite still runs on a machine without
+either. **Any change to a template, to `app.css` or to a script under
+`static/` belongs in that file**, alongside whatever HTML-level assertion the
+change deserves.
+
+For looking rather than asserting — layout, spacing, whether a control reads as
+a control — there is a screenshot tool over the same synthetic data:
+
+```bash
+python scripts/uishot.py /vehicles/1 -o /tmp/vehicle.png
+python scripts/uishot.py /events --click "button.expander" --clip table
+python scripts/uishot.py / --dark --full          # the dark theme, whole page
+python scripts/uishot.py /status --db tpms.db     # your real database instead
+```
